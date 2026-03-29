@@ -394,7 +394,10 @@
     if (marbles.every(m => m.settled)) { state = 'complete'; completeTime = performance.now(); launchConfetti(); playDone(); }
   }
 
+  let shakeT = 0; // screen shake timer
+
   function onNudge() {
+    shakeT = 12; // shake for 12 frames
     marbles.forEach(m => {
       if (m.settled) return;
       Body.applyForce(m.body, m.body.position, {
@@ -625,22 +628,76 @@
   }
 
   function drawBtn() {
-    let text;
-    if (state === 'idle') text = '\u25B6  START';
-    else if (state === 'starting' || state === 'running') text = '\u261D  NUDGE';
-    else if (state === 'complete' && showNames) text = '\u21BA  RESET';
-    else return;
-    const bx = vw / 2, by = vh - 42, bw = 190, bh = 50;
-    ctx.save();
-    ctx.shadowColor = 'rgba(90,180,120,0.3)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 3;
-    const g = ctx.createLinearGradient(bx - bw / 2, 0, bx + bw / 2, 0);
-    g.addColorStop(0, COLORS.green); g.addColorStop(0.5, COLORS.blue); g.addColorStop(1, COLORS.magenta);
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = '#fff'; ctx.font = '700 18px "Inter", sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, bx, by);
+    const bx = vw / 2, by = vh - 42;
+
+    if (state === 'idle') {
+      // Circus marquee START button
+      const bw = 210, bh = 56, r = bh / 2;
+      const t = performance.now();
+
+      // Outer glow
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,80,50,0.5)'; ctx.shadowBlur = 30;
+
+      // Red border frame
+      ctx.fillStyle = '#c0392b';
+      ctx.beginPath(); ctx.roundRect(bx - bw / 2 - 6, by - bh / 2 - 6, bw + 12, bh + 12, r + 6); ctx.fill();
+
+      // Marquee lights around the border
+      const perim = 2 * (bw + bh) + 2 * Math.PI * 4;
+      const numLights = 24;
+      for (let i = 0; i < numLights; i++) {
+        const frac = i / numLights;
+        const phase = ((t / 120) + frac) % 1;
+        const bright = phase < 0.5 ? 1 : 0.3;
+        // Position lights along rounded rect perimeter
+        let lx, ly;
+        const p = frac * (2 * bw + 2 * bh);
+        if (p < bw) { lx = bx - bw / 2 + p; ly = by - bh / 2 - 5; }
+        else if (p < bw + bh) { lx = bx + bw / 2 + 5; ly = by - bh / 2 + (p - bw); }
+        else if (p < 2 * bw + bh) { lx = bx + bw / 2 - (p - bw - bh); ly = by + bh / 2 + 5; }
+        else { lx = bx - bw / 2 - 5; ly = by + bh / 2 - (p - 2 * bw - bh); }
+
+        ctx.beginPath(); ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,${180 + 75 * bright|0},${50 * bright|0},${0.4 + 0.6 * bright})`;
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Inner dark fill
+      ctx.fillStyle = '#1a0a08';
+      ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, r); ctx.fill();
+
+      // Text
+      ctx.fillStyle = '#ffd700'; ctx.font = '700 22px "Inter", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('\u25B6  START', bx, by);
+
+    } else if (state === 'starting' || state === 'running') {
+      // Small nudge pill
+      const bw = 120, bh = 38;
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#333';
+      ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#aaa'; ctx.font = '600 14px "Inter", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('\u261D Nudge', bx, by);
+
+    } else if (state === 'complete' && showNames) {
+      const bw = 190, bh = 50;
+      ctx.save();
+      ctx.shadowColor = 'rgba(90,180,120,0.3)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 3;
+      const g = ctx.createLinearGradient(bx - bw / 2, 0, bx + bw / 2, 0);
+      g.addColorStop(0, COLORS.green); g.addColorStop(0.5, COLORS.blue); g.addColorStop(1, COLORS.magenta);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#fff'; ctx.font = '700 18px "Inter", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('\u21BA  RESET', bx, by);
+    }
   }
 
   function drawOverlay() {
@@ -704,6 +761,14 @@
   function render() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (state === 'loading') { drawLoading(); return; }
+
+    // Screen shake
+    if (shakeT > 0) {
+      const intensity = shakeT * 0.6;
+      ctx.translate((Math.random() - 0.5) * intensity, (Math.random() - 0.5) * intensity);
+      shakeT--;
+    }
+
     drawBg();
     ctx.save(); applyCam();
     drawBuckets();
@@ -736,7 +801,11 @@
   // ============================================================
   //  INPUT
   // ============================================================
-  function btnRect() { return { x: vw / 2, y: vh - 42, w: 190, h: 50 }; }
+  function btnRect() {
+    if (state === 'idle') return { x: vw/2, y: vh-42, w: 220, h: 68 };
+    if (state === 'starting' || state === 'running') return { x: vw/2, y: vh-42, w: 120, h: 38 };
+    return { x: vw/2, y: vh-42, w: 190, h: 50 };
+  }
   function onClick(px, py) {
     const b = btnRect();
     if (state === 'idle' && isIn(px, py, b)) onStart();
