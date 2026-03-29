@@ -196,6 +196,13 @@
     // Ceiling
     bodies.push(Bodies.rectangle(400, BOWL_CY - BOWL_R - 10, 810, 8, S));
 
+    // Bowl rim containment (prevent marbles escaping over the sides)
+    const rimY = BOWL_CY - 4;
+    const rimLeft = BOWL_CX - BOWL_R;
+    const rimRight = BOWL_CX + BOWL_R;
+    bodies.push(Bodies.rectangle((WALL_L + rimLeft) / 2, rimY, rimLeft - WALL_L + 16, 8, S));
+    bodies.push(Bodies.rectangle((rimRight + WALL_R) / 2, rimY, WALL_R - rimRight + 16, 8, S));
+
     // Bowl: bottom semicircle (angles 0→PI through PI/2) with gate gap
     const bowlSegs = 16;
     const gateA = Math.PI / 2; // gate at the very bottom
@@ -306,6 +313,15 @@
         if (b.position.y > PIN_Y0 - 10 && b.position.y < BKT_TOP && b.speed < 0.8) {
           Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.006, y: 0.005 });
         }
+        // Auto-unstick: if marble barely moves for 2 sec, strong kick
+        if (!m._stuckT) m._stuckT = 0;
+        if (b.speed < 0.3 && b.position.y < BKT_TOP) {
+          m._stuckT++;
+          if (m._stuckT > 120) {
+            Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.02, y: 0.015 });
+            m._stuckT = 0;
+          }
+        } else { m._stuckT = 0; }
         if (!m.assignment) return;
         const dx = BKT_CX[m.assignment] - b.position.x;
         // Drift correction through pins
@@ -376,6 +392,16 @@
       }
     });
     if (marbles.every(m => m.settled)) { state = 'complete'; completeTime = performance.now(); launchConfetti(); playDone(); }
+  }
+
+  function onNudge() {
+    marbles.forEach(m => {
+      if (m.settled) return;
+      Body.applyForce(m.body, m.body.position, {
+        x: (Math.random() - 0.5) * 0.015,
+        y: 0.01
+      });
+    });
   }
 
   function onReset() {
@@ -601,6 +627,7 @@
   function drawBtn() {
     let text;
     if (state === 'idle') text = '\u25B6  START';
+    else if (state === 'starting' || state === 'running') text = '\u261D  NUDGE';
     else if (state === 'complete' && showNames) text = '\u21BA  RESET';
     else return;
     const bx = vw / 2, by = vh - 42, bw = 190, bh = 50;
@@ -713,13 +740,15 @@
   function onClick(px, py) {
     const b = btnRect();
     if (state === 'idle' && isIn(px, py, b)) onStart();
+    else if ((state === 'starting' || state === 'running') && isIn(px, py, b)) onNudge();
     else if (state === 'complete' && showNames && isIn(px, py, b)) onReset();
   }
   canvas.addEventListener('click', e => onClick(e.clientX, e.clientY));
   canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; onClick(t.clientX, t.clientY); }, { passive: false });
   canvas.addEventListener('mousemove', e => {
     const b = btnRect();
-    canvas.style.cursor = ((state === 'idle') || (state === 'complete' && showNames)) && isIn(e.clientX, e.clientY, b) ? 'pointer' : 'default';
+    const show = state === 'idle' || state === 'starting' || state === 'running' || (state === 'complete' && showNames);
+    canvas.style.cursor = show && isIn(e.clientX, e.clientY, b) ? 'pointer' : 'default';
   });
 
   // ============================================================
