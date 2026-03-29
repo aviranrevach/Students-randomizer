@@ -416,7 +416,7 @@
 
   function onReset() {
     if (state !== 'complete') return;
-    state = 'idle'; showNames = false; overlayAlpha = 0;
+    state = 'idle'; showNames = false; overlayAlpha = 0; resultSlide = 0;
     gateOpening = false; gateAnim = 0; confetti.length = 0; lastTimestamp = null;
     bucketCounts.green = bucketCounts.blue = bucketCounts.magenta = 0;
     const z = getIdleZoom();
@@ -744,7 +744,7 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('\u261D Nudge', bx, by);
 
-    } else if (state === 'complete' && showNames) {
+    } else if (state === 'complete' && resultSlide >= 0.95) {
       const bw = 190, bh = 50;
       ctx.save();
       ctx.shadowColor = 'rgba(90,180,120,0.3)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 3;
@@ -759,51 +759,121 @@
     }
   }
 
+  let resultSlide = 0; // 0 = offscreen right, 1 = fully visible
+
   function drawOverlay() {
-    if (!showNames || overlayAlpha <= 0) return;
-    ctx.save(); ctx.globalAlpha = overlayAlpha;
-    const pad = Math.max(20, vw * 0.03);
-    const ow = Math.min(780, vw - pad * 2), oh = Math.min(680, vh - pad * 2 - 60);
-    const ox = (vw - ow) / 2, oy = Math.max(55, (vh - oh) / 2);
+    if (!showNames) { resultSlide = 0; return; }
 
-    ctx.fillStyle = 'rgba(12,12,22,0.97)';
-    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 20); ctx.fill();
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 20); ctx.stroke();
+    // Slide in from the right
+    resultSlide = Math.min(1, resultSlide + 0.035);
+    const ease = 1 - Math.pow(1 - resultSlide, 3); // ease-out cubic
+    const slideX = vw * (1 - ease); // starts at vw, ends at 0
 
-    ctx.fillStyle = '#fff'; ctx.font = '700 30px "Inter", sans-serif';
-    ctx.textAlign = 'center'; ctx.fillText('Results', vw / 2, oy + 48);
-    ctx.strokeStyle = '#1f1f2f'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ox + 30, oy + 68); ctx.lineTo(ox + ow - 30, oy + 68); ctx.stroke();
+    ctx.save();
+    ctx.translate(slideX, 0);
+
+    // Full-screen dark backdrop
+    ctx.fillStyle = '#0c0c18';
+    ctx.fillRect(0, 0, vw, vh);
+
+    // Subtle gradient overlay
+    const bgG = ctx.createLinearGradient(0, 0, vw, vh);
+    bgG.addColorStop(0, 'rgba(30,30,50,0.5)');
+    bgG.addColorStop(1, 'rgba(10,10,20,0.5)');
+    ctx.fillStyle = bgG;
+    ctx.fillRect(0, 0, vw, vh);
 
     const groups = { green: [], blue: [], magenta: [] };
     marbles.forEach(m => groups[m.assignment].push(m));
-    const colW = ow / 3;
 
-    [
-      { key: 'green', cx: ox + colW * 0.5, label: 'Improve' },
-      { key: 'blue', cx: ox + colW * 1.5, label: 'Meet & Do' },
-      { key: 'magenta', cx: ox + colW * 2.5, label: 'Be Prepared' },
-    ].forEach(col => {
-      ctx.fillStyle = COLORS[col.key]; ctx.font = '700 17px "Inter", sans-serif';
-      ctx.textAlign = 'center'; ctx.fillText(col.label, col.cx, oy + 100);
-      ctx.strokeStyle = COLORS[col.key] + '33'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(col.cx - 55, oy + 112); ctx.lineTo(col.cx + 55, oy + 112); ctx.stroke();
+    const sections = [
+      { key: 'green', label: 'Improve' },
+      { key: 'blue', label: 'Meet & Do' },
+      { key: 'magenta', label: 'Be Prepared' },
+    ];
 
-      groups[col.key].forEach((m, i) => {
-        const ry = oy + 140 + i * 46;
+    // Layout: 3 sections stacked vertically
+    const titleH = 70;
+    const sectionH = (vh - titleH) / 3;
+    const avatarR = Math.min(28, sectionH * 0.22);
+    const maxCols = Math.floor((vw - 60) / (avatarR * 2 + 20));
+
+    // Main title
+    ctx.fillStyle = '#fff';
+    ctx.font = `700 ${Math.min(36, vw * 0.04)}px "Inter", sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('The Randomizer', vw / 2, 36);
+
+    sections.forEach((sec, si) => {
+      const c = COLORS[sec.key];
+      const sy = titleH + si * sectionH;
+      const members = groups[sec.key];
+
+      // Section background
+      ctx.fillStyle = c + '0a';
+      ctx.fillRect(0, sy, vw, sectionH - 2);
+
+      // Accent bar on the left
+      ctx.fillStyle = c;
+      ctx.fillRect(0, sy, 5, sectionH - 2);
+
+      // Group title
+      ctx.fillStyle = c;
+      ctx.font = `700 ${Math.min(24, vw * 0.028)}px "Inter", sans-serif`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const labelY = sy + sectionH * 0.22;
+      ctx.fillText(sec.label, 30, labelY);
+
+      // Underline
+      const tw = ctx.measureText(sec.label).width;
+      ctx.strokeStyle = c + '44'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(30, labelY + 14); ctx.lineTo(30 + tw, labelY + 14); ctx.stroke();
+
+      // Member count
+      ctx.fillStyle = '#666';
+      ctx.font = `400 ${Math.min(14, vw * 0.016)}px "Inter", sans-serif`;
+      ctx.fillText(`${members.length} students`, 30 + tw + 15, labelY);
+
+      // Avatars in a row
+      const avatarY = sy + sectionH * 0.6;
+      const startX = 35;
+      const gap = Math.min(avatarR * 2 + 18, (vw - 70) / Math.max(1, members.length));
+
+      members.forEach((m, i) => {
+        const ax = startX + i * gap + avatarR;
+        const ay = avatarY;
+
+        // Glow behind avatar
+        ctx.save();
+        ctx.shadowColor = c + '40'; ctx.shadowBlur = 12;
+
+        // Avatar circle
         if (m.texture) {
           ctx.save();
-          ctx.beginPath(); ctx.arc(col.cx - 58, ry, 15, 0, Math.PI * 2); ctx.clip();
-          ctx.drawImage(m.texture, col.cx - 73, ry - 15, 30, 30);
+          ctx.beginPath(); ctx.arc(ax, ay, avatarR, 0, Math.PI * 2); ctx.clip();
+          ctx.drawImage(m.texture, ax - avatarR, ay - avatarR, avatarR * 2, avatarR * 2);
           ctx.restore();
-          ctx.beginPath(); ctx.arc(col.cx - 58, ry, 15, 0, Math.PI * 2);
-          ctx.strokeStyle = COLORS[col.key] + '66'; ctx.lineWidth = 2; ctx.stroke();
         }
-        ctx.fillStyle = '#e0e0e0'; ctx.font = '400 15px "Inter", sans-serif';
-        ctx.textAlign = 'left'; ctx.fillText(m.name, col.cx - 36, ry + 5);
+
+        // Border
+        ctx.beginPath(); ctx.arc(ax, ay, avatarR, 0, Math.PI * 2);
+        ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.stroke();
+        ctx.restore();
+
+        // Name below avatar
+        ctx.fillStyle = '#ccc';
+        ctx.font = `400 ${Math.min(12, vw * 0.014)}px "Inter", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(m.name, ax, ay + avatarR + 16);
       });
+
+      // Divider line between sections
+      if (si < 2) {
+        ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(20, sy + sectionH - 1); ctx.lineTo(vw - 20, sy + sectionH - 1); ctx.stroke();
+      }
     });
+
     ctx.restore();
   }
 
@@ -839,7 +909,7 @@
     drawTitle(); drawBtn();
     if (state === 'complete') {
       const el = performance.now() - completeTime;
-      if (el > 1800) { showNames = true; overlayAlpha = Math.min(1, (el - 1800) / 500); }
+      if (el > 1500) { showNames = true; }
     }
     drawOverlay(); drawConfetti();
   }
@@ -869,13 +939,13 @@
     const b = btnRect();
     if (state === 'idle' && isIn(px, py, b)) onStart();
     else if ((state === 'starting' || state === 'running') && isIn(px, py, b)) onNudge();
-    else if (state === 'complete' && showNames && isIn(px, py, b)) onReset();
+    else if (state === 'complete' && resultSlide >= 0.95 && isIn(px, py, b)) onReset();
   }
   canvas.addEventListener('click', e => onClick(e.clientX, e.clientY));
   canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; onClick(t.clientX, t.clientY); }, { passive: false });
   canvas.addEventListener('mousemove', e => {
     const b = btnRect();
-    const show = state === 'idle' || state === 'starting' || state === 'running' || (state === 'complete' && showNames);
+    const show = state === 'idle' || state === 'starting' || state === 'running' || (state === 'complete' && resultSlide >= 0.95);
     canvas.style.cursor = show && isIn(e.clientX, e.clientY, b) ? 'pointer' : 'default';
   });
 
