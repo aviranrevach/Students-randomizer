@@ -381,10 +381,15 @@
         m.slowFrames++;
         if (m.slowFrames > 45) {
           m.settled = true;
-          // Keep marble where physics placed it — natural stacking
-          m.settledPos = { x: m.body.position.x, y: m.body.position.y };
-          Body.setStatic(m.body, true);
-          Body.setVelocity(m.body, { x: 0, y: 0 });
+          const idx = bucketCounts[m.assignment]++;
+          const target = getStackPos(m.assignment, idx);
+          // Organic offset so it doesn't look rigid
+          target.x += (Math.random() - 0.5) * 8;
+          target.y += (Math.random() - 0.5) * 5;
+          m.settleFrom = { x: m.body.position.x, y: m.body.position.y };
+          m.settledPos = target;
+          m.settleT = 0;
+          Composite.remove(engine.world, m.body);
           playLand();
         }
       } else { m.slowFrames = 0; }
@@ -585,7 +590,22 @@
 
   function drawMarbles() {
     marbles.forEach(m => {
-      const pos = m.settled ? m.settledPos : m.body.position;
+      let pos;
+      if (m.settled && m.settleT != null) {
+        // Smooth settle animation
+        m.settleT = Math.min(1, (m.settleT || 0) + 0.05);
+        const t = m.settleT;
+        const ease = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2;
+        pos = {
+          x: m.settleFrom.x + (m.settledPos.x - m.settleFrom.x) * ease,
+          y: m.settleFrom.y + (m.settledPos.y - m.settleFrom.y) * ease
+        };
+        if (m.settleT >= 1) pos = m.settledPos;
+      } else if (m.settled) {
+        pos = m.settledPos;
+      } else {
+        pos = m.body.position;
+      }
       if (!pos) return;
       const { x, y } = pos;
 
