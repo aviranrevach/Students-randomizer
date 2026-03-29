@@ -653,42 +653,25 @@
       ctx.beginPath(); ctx.roundRect(bx - bw/2 - pad + 2, by - bh/2 - pad + 2, bw + pad*2 - 4, bh + pad*2 - 4, r + pad - 2); ctx.stroke();
 
       // Chase lights — 3 groups cycling for classic marquee effect
-      const numLights = 32;
+      const numLights = 30;
       const speed = t / 200;
+      const ox = bx - bw / 2 - 5, oy = by - bh / 2 - 5; // light track origin
+      const tw = bw + 10, th = bh + 10; // light track size
+      const perim = 2 * tw + 2 * th;
+
       for (let i = 0; i < numLights; i++) {
         const frac = i / numLights;
-        // 3-phase chase: each bulb in one of 3 groups
         const group = i % 3;
         const wave = (speed + group / 3) % 1;
         const bright = 0.15 + 0.85 * Math.max(0, Math.cos(wave * Math.PI * 2)) ** 2;
 
-        // Position along rounded rect perimeter
-        const totalPerim = 2 * (bw + bh - 4) + 2 * Math.PI * (r + 3);
-        const d = frac * totalPerim;
-        const hw = bw / 2 - r, hh = bh / 2 - r;
-        const straight = 2 * hw + 2 * hh; // total straight segments
-        const cornerLen = 0.5 * Math.PI * (r + 3); // each corner arc
+        // Position along simple rectangular perimeter
+        const d = frac * perim;
         let lx, ly;
-
-        // Top edge (left to right)
-        if (d < 2 * hw) {
-          lx = bx - hw + d; ly = by - bh / 2 - 3;
-        }
-        // Right edge
-        else if (d < 2 * hw + 2 * hh) {
-          const dd = d - 2 * hw;
-          lx = bx + bw / 2 + 3; ly = by - hh + dd;
-        }
-        // Bottom edge (right to left)
-        else if (d < 4 * hw + 2 * hh) {
-          const dd = d - 2 * hw - 2 * hh;
-          lx = bx + hw - dd; ly = by + bh / 2 + 3;
-        }
-        // Left edge
-        else {
-          const dd = d - 4 * hw - 2 * hh;
-          lx = bx - bw / 2 - 3; ly = by + hh - dd;
-        }
+        if (d < tw) { lx = ox + d; ly = oy; }
+        else if (d < tw + th) { lx = ox + tw; ly = oy + (d - tw); }
+        else if (d < 2 * tw + th) { lx = ox + tw - (d - tw - th); ly = oy + th; }
+        else { lx = ox; ly = oy + th - (d - 2 * tw - th); }
 
         // Bulb glow halo
         if (bright > 0.5) {
