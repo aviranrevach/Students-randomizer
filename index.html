@@ -4,19 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>The Randomizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #0a0a14;
-      overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      width: 100vw;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    canvas { display: block; }
+    body { background: #0f0f1a; overflow: hidden; }
+    canvas { display: block; position: fixed; top: 0; left: 0; }
   </style>
 </head>
 <body>
@@ -24,7 +18,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
   <script>
   // ============================================================
-  //  CONFIGURATION
+  //  CONFIG
   // ============================================================
   const photos = [
     "01 יהלי אלדר.png","02 מיקה באומן.jpg","03 תמר בזק.jpg",
@@ -38,349 +32,236 @@
 
   const COLORS = { green: '#00e676', blue: '#00b0ff', magenta: '#e040fb' };
   const COLOR_NAMES = ['green', 'blue', 'magenta'];
-  const MARBLE_R = 20;
-  const PIN_R = 6;
-  const CW = 800;
-  const CH = 1000;
+  const MARBLE_R = 19;
+  const PIN_R = 5;
+  const CW = 800, CH = 1000;
 
-  // Layout
-  const HOPPER_TOP_Y = 50;
-  const HOPPER_BOT_Y = 230;
-  const HOPPER_TL = { x: 160, y: HOPPER_TOP_Y };
-  const HOPPER_BL = { x: 365, y: HOPPER_BOT_Y };
-  const HOPPER_TR = { x: 640, y: HOPPER_TOP_Y };
-  const HOPPER_BR = { x: 435, y: HOPPER_BOT_Y };
-  const GATE_Y = 234;
+  // Hopper (taller, no top rim)
+  const HOP = {
+    tl: { x: 130, y: 15 }, tr: { x: 670, y: 15 },
+    bl: { x: 362, y: 275 }, br: { x: 438, y: 275 }
+  };
+  const GATE_Y = 279;
 
-  // Pins: 6 rows (less center-bias than 8), 7/6 alternating
-  const PIN_START_Y = 320;
-  const PIN_END_Y = 595;
+  // Pins: 6 rows, 6/5 pattern (wide spacing, no jamming)
   const PIN_ROWS = 6;
-  const PIN_SPACING_Y = (PIN_END_Y - PIN_START_Y) / (PIN_ROWS - 1);
-  const PIN_LEFT_X = 150;
-  const PIN_RIGHT_X = 650;
+  const PIN_Y0 = 345, PIN_Y1 = 610;
+  const PIN_DY = (PIN_Y1 - PIN_Y0) / (PIN_ROWS - 1);
+  const PIN_X0 = 155, PIN_X1 = 645;
 
-  const BUCKET_TOP = 660;
-  const BUCKET_BOT = 890;
-  const WALL_X_L = 100;
-  const WALL_X_R = 700;
-  const DIV1_X = 300;
-  const DIV2_X = 500;
-  const DIV_TOP = 625;  // dividers extend above bucket area
-  const BUCKET_CX = { green: 200, blue: 400, magenta: 600 };
+  // Buckets
+  const BKT_TOP = 665, BKT_BOT = 910;
+  const WALL_L = 100, WALL_R = 700;
+  const DIV1 = 300, DIV2 = 500;
+  const DIV_TOP = 632;
+  const BKT_CX = { green: 200, blue: 400, magenta: 600 };
 
   // ============================================================
   //  STATE
   // ============================================================
-  let state = 'loading'; // loading | idle | starting | running | complete
-  let gateOpen = false;
-  let showNames = false;
-  let overlayAlpha = 0;
-  let completeTime = 0;
-  let engine, gateBody;
-  let marbles = [];
-  let pinBodies = [];
-  let confetti = [];
-  let audioCtx;
-  let lastPinSound = 0;
-  let lastLandSound = 0;
-  let lastTimestamp = null;
-  const studentImages = {};
-  const marbleTextures = {};
+  let state = 'loading';
+  let gateOpening = false, gateAnim = 0;
+  let showNames = false, overlayAlpha = 0, completeTime = 0;
+  let engine, gateBodyL, gateBodyR;
+  let marbles = [], pinBodies = [], confetti = [];
+  let audioCtx, lastPinSound = 0, lastLandSound = 0, lastTimestamp = null;
+  const studentImages = {}, marbleTextures = {};
   let collisionHandler, updateHandler;
+  const bucketCounts = { green: 0, blue: 0, magenta: 0 };
+  const bucketTotals = { green: 0, blue: 0, magenta: 0 };
 
   // Camera
-  const camera = { centerY: 150, zoom: 2.2 };
-  const cameraTarget = { centerY: 150, zoom: 2.2 };
+  let vw = window.innerWidth, vh = window.innerHeight;
+  const camera = { cy: 150, zoom: 1 };
+  const camTarget = { cy: 150, zoom: 1 };
+
+  function getIdleZoom() {
+    const bs = Math.min(vw / CW, (vh - 50) / CH);
+    return Math.min(2.8, (vw * 0.88) / (560 * bs));
+  }
 
   // ============================================================
-  //  CANVAS SETUP
+  //  CANVAS
   // ============================================================
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = CW * dpr;
-  canvas.height = CH * dpr;
-  ctx.scale(dpr, dpr);
 
-  function resizeCanvas() {
-    const ar = CW / CH;
-    let dw = window.innerWidth;
-    let dh = window.innerHeight;
-    if (dw / dh > ar) { dw = dh * ar; } else { dh = dw / ar; }
-    canvas.style.width = dw + 'px';
-    canvas.style.height = dh + 'px';
+  function resize() {
+    vw = window.innerWidth; vh = window.innerHeight;
+    canvas.width = vw * dpr; canvas.height = vh * dpr;
+    canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
+    if (state === 'idle') {
+      const z = getIdleZoom();
+      camera.zoom = z; camTarget.zoom = z;
+    }
   }
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
+  window.addEventListener('resize', resize);
+  resize();
 
   // ============================================================
-  //  MATTER.JS ALIASES
+  //  MATTER.JS
   // ============================================================
   const { Engine, Bodies, Body, Composite, Events } = Matter;
 
   // ============================================================
   //  HELPERS
   // ============================================================
-  function shuffle(arr) {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  function extractName(f) {
-    return f.replace(/^\d+\s*/, '').replace(/\.\w+$/, '');
-  }
-
+  function shuffle(a) { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]];} return b; }
+  function extractName(f) { return f.replace(/^\d+\s*/, '').replace(/\.\w+$/, ''); }
   function lerp(a, b, t) { return a + (b - a) * t; }
 
   function updateCamera() {
-    camera.centerY = lerp(camera.centerY, cameraTarget.centerY, 0.04);
-    camera.zoom = lerp(camera.zoom, cameraTarget.zoom, 0.04);
+    camera.cy = lerp(camera.cy, camTarget.cy, 0.04);
+    camera.zoom = lerp(camera.zoom, camTarget.zoom, 0.04);
   }
 
-  function applyCameraTransform() {
-    ctx.translate(CW / 2, CH / 2);
-    ctx.scale(camera.zoom, camera.zoom);
-    ctx.translate(-CW / 2, -camera.centerY);
+  function applyCam() {
+    const bs = Math.min(vw / CW, (vh - 50) / CH);
+    const s = bs * camera.zoom;
+    ctx.translate(vw / 2, 50 + (vh - 50) / 2);
+    ctx.scale(s, s);
+    ctx.translate(-CW / 2, -camera.cy);
   }
 
-  function getCanvasCoords(e) {
-    const rect = canvas.getBoundingClientRect();
+  function isIn(px, py, b) {
+    return px >= b.x - b.w/2 && px <= b.x + b.w/2 && py >= b.y - b.h/2 && py <= b.y + b.h/2;
+  }
+
+  function getStackPos(asgn, idx) {
+    const cx = BKT_CX[asgn], cols = 4, sp = 43;
+    const row = Math.floor(idx / cols), col = idx % cols;
+    const inRow = Math.min(cols, bucketTotals[asgn] - row * cols);
     return {
-      x: (e.clientX - rect.left) * (CW / rect.width),
-      y: (e.clientY - rect.top) * (CH / rect.height),
+      x: cx + (col - (inRow - 1) / 2) * sp,
+      y: BKT_BOT - MARBLE_R - 14 - row * sp
     };
   }
 
-  function isInsideBtn(cx, cy, btn) {
-    return cx >= btn.x - btn.w / 2 && cx <= btn.x + btn.w / 2 &&
-           cy >= btn.y - btn.h / 2 && cy <= btn.y + btn.h / 2;
+  // ============================================================
+  //  SOUND
+  // ============================================================
+  function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+
+  function makeSound(freq, type, vol, dur, delay) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = freq; o.type = type;
+    const t = audioCtx.currentTime + (delay || 0);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur + 0.01);
   }
+
+  function playPin() {
+    const n = performance.now(); if (n - lastPinSound < 40) return; lastPinSound = n;
+    makeSound(900 + Math.random() * 500, 'sine', 0.05, 0.035);
+  }
+  function playLand() {
+    const n = performance.now(); if (n - lastLandSound < 100) return; lastLandSound = n;
+    makeSound(140 + Math.random() * 80, 'sine', 0.1, 0.1);
+  }
+  function playGate() { makeSound(90, 'triangle', 0.18, 0.15); makeSound(1800, 'square', 0.03, 0.04, 0.03); }
+  function playDone() { [523,659,784].forEach((f,i) => makeSound(f, 'sine', 0.14, 0.3, i*0.15)); }
 
   // ============================================================
-  //  SOUND ENGINE
+  //  IMAGES
   // ============================================================
-  function initAudio() {
-    if (audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-
-  function playPinSound() {
-    if (!audioCtx) return;
-    const now = performance.now();
-    if (now - lastPinSound < 35) return;
-    lastPinSound = now;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 800 + Math.random() * 600;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.05);
-  }
-
-  function playLandingSound() {
-    if (!audioCtx) return;
-    const now = performance.now();
-    if (now - lastLandSound < 80) return;
-    lastLandSound = now;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 150 + Math.random() * 100;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.12);
-  }
-
-  function playGateSound() {
-    if (!audioCtx) return;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 100;
-    osc.type = 'triangle';
-    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.16);
-    const osc2 = audioCtx.createOscillator();
-    const gain2 = audioCtx.createGain();
-    osc2.connect(gain2);
-    gain2.connect(audioCtx.destination);
-    osc2.frequency.value = 2000;
-    osc2.type = 'square';
-    gain2.gain.setValueAtTime(0.04, audioCtx.currentTime + 0.02);
-    gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
-    osc2.start(audioCtx.currentTime + 0.02);
-    osc2.stop(audioCtx.currentTime + 0.07);
-  }
-
-  function playCompleteSound() {
-    if (!audioCtx) return;
-    [523, 659, 784].forEach((freq, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      const t = audioCtx.currentTime + i * 0.15;
-      gain.gain.setValueAtTime(0.15, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      osc.start(t);
-      osc.stop(t + 0.35);
-    });
-  }
-
-  // ============================================================
-  //  IMAGE PRELOADING & TEXTURES
-  // ============================================================
-  function preloadImages(cb) {
-    let loaded = 0;
-    photos.forEach(photo => {
-      const img = new Image();
-      img.onload = () => { studentImages[photo] = img; loaded++; if (loaded === photos.length) cb(); };
-      img.onerror = () => { loaded++; if (loaded === photos.length) cb(); };
-      img.src = `Class2026-1_photos/${photo}`;
-    });
-  }
-
-  function createTexture(img) {
-    const scale = 2; // hi-res for retina
-    const size = MARBLE_R * 2 * scale;
-    const off = document.createElement('canvas');
-    off.width = size;
-    off.height = size;
-    const oc = off.getContext('2d');
-    oc.beginPath();
-    oc.arc(size / 2, size / 2, size / 2 - 2 * scale, 0, Math.PI * 2);
-    oc.clip();
-    const s = Math.min(img.width, img.height);
-    const sx = (img.width - s) / 2;
-    const sy = (img.height - s) / 2;
-    oc.drawImage(img, sx, sy, s, s, 0, 0, size, size);
-    return off;
-  }
-
-  function createAllTextures() {
+  function preload(cb) {
+    let n = 0;
     photos.forEach(p => {
-      if (studentImages[p]) marbleTextures[p] = createTexture(studentImages[p]);
+      const img = new Image();
+      img.onload = () => { studentImages[p] = img; if (++n === photos.length) cb(); };
+      img.onerror = () => { if (++n === photos.length) cb(); };
+      img.src = `Class2026-1_photos/${p}`;
     });
   }
+
+  function makeTexture(img) {
+    const s = 2, sz = MARBLE_R * 2 * s;
+    const c = document.createElement('canvas'); c.width = c.height = sz;
+    const x = c.getContext('2d');
+    x.beginPath(); x.arc(sz/2, sz/2, sz/2 - s*2, 0, Math.PI*2); x.clip();
+    const d = Math.min(img.width, img.height);
+    x.drawImage(img, (img.width-d)/2, (img.height-d)/2, d, d, 0, 0, sz, sz);
+    return c;
+  }
+
+  function makeTextures() { photos.forEach(p => { if (studentImages[p]) marbleTextures[p] = makeTexture(studentImages[p]); }); }
 
   // ============================================================
   //  PHYSICS WORLD
   // ============================================================
   function createWorld() {
     engine = Engine.create({ gravity: { x: 0, y: 1.0 } });
+    const S = { isStatic: true }, bodies = [];
 
-    const wallOpts = { isStatic: true, friction: 0.1, restitution: 0.3 };
-    const bodies = [];
+    // Ceiling + top corner walls
+    bodies.push(Bodies.rectangle(400, -10, 810, 8, S));
+    bodies.push(Bodies.rectangle(115, 11, 38, 8, S));
+    bodies.push(Bodies.rectangle(685, 11, 38, 8, S));
 
-    // Ceiling
-    bodies.push(Bodies.rectangle(400, -4, 810, 8, { isStatic: true }));
+    // Hopper walls
+    const mkWall = (a, b) => {
+      const dx = b.x-a.x, dy = b.y-a.y;
+      return Bodies.rectangle((a.x+b.x)/2, (a.y+b.y)/2, Math.hypot(dx,dy), 10,
+        { ...S, angle: Math.atan2(dy,dx), friction: 0.05, restitution: 0.3 });
+    };
+    bodies.push(mkWall(HOP.tl, HOP.bl));
+    bodies.push(mkWall(HOP.tr, HOP.br));
 
-    // Top rim
-    bodies.push(Bodies.rectangle(400, HOPPER_TOP_Y - 4, 620, 8, { isStatic: true }));
+    // Gate (two halves)
+    gateBodyL = Bodies.rectangle(381, GATE_Y, 38, 10, { ...S, friction: 0.3 });
+    gateBodyR = Bodies.rectangle(419, GATE_Y, 38, 10, { ...S, friction: 0.3 });
+    bodies.push(gateBodyL, gateBodyR);
 
-    // Hopper left wall
-    const hlDx = HOPPER_BL.x - HOPPER_TL.x;
-    const hlDy = HOPPER_BL.y - HOPPER_TL.y;
-    bodies.push(Bodies.rectangle(
-      (HOPPER_TL.x + HOPPER_BL.x) / 2, (HOPPER_TL.y + HOPPER_BL.y) / 2,
-      Math.hypot(hlDx, hlDy), 8, { ...wallOpts, angle: Math.atan2(hlDy, hlDx) }
-    ));
-
-    // Hopper right wall
-    const hrDx = HOPPER_BR.x - HOPPER_TR.x;
-    const hrDy = HOPPER_BR.y - HOPPER_TR.y;
-    bodies.push(Bodies.rectangle(
-      (HOPPER_TR.x + HOPPER_BR.x) / 2, (HOPPER_TR.y + HOPPER_BR.y) / 2,
-      Math.hypot(hrDx, hrDy), 8, { ...wallOpts, angle: Math.atan2(hrDy, hrDx) }
-    ));
-
-    // Gate
-    gateBody = Bodies.rectangle(400, GATE_Y, 78, 10, { isStatic: true, friction: 0.5 });
-    bodies.push(gateBody);
-
-    // Side walls
-    const wallH = BUCKET_BOT - HOPPER_BOT_Y;
-    const wallCY = (HOPPER_BOT_Y + BUCKET_BOT) / 2;
-    bodies.push(Bodies.rectangle(WALL_X_L - 4, wallCY, 8, wallH, { isStatic: true }));
-    bodies.push(Bodies.rectangle(WALL_X_R + 4, wallCY, 8, wallH, { isStatic: true }));
+    // Side walls (full height, invisible)
+    bodies.push(Bodies.rectangle(WALL_L - 4, CH/2 - 50, 8, CH + 100, S));
+    bodies.push(Bodies.rectangle(WALL_R + 4, CH/2 - 50, 8, CH + 100, S));
 
     // Floor
-    bodies.push(Bodies.rectangle(400, BUCKET_BOT + 4, WALL_X_R - WALL_X_L + 8, 8, { isStatic: true }));
+    bodies.push(Bodies.rectangle(400, BKT_BOT + 4, 610, 8, S));
 
-    // Bucket dividers (extend above bucket area for channeling)
-    const divH = BUCKET_BOT - DIV_TOP;
-    const divCY = (DIV_TOP + BUCKET_BOT) / 2;
-    bodies.push(Bodies.rectangle(DIV1_X, divCY, 6, divH, { isStatic: true, restitution: 0.2 }));
-    bodies.push(Bodies.rectangle(DIV2_X, divCY, 6, divH, { isStatic: true, restitution: 0.2 }));
+    // Dividers (extend above buckets)
+    const dH = BKT_BOT - DIV_TOP, dCY = (DIV_TOP + BKT_BOT) / 2;
+    bodies.push(Bodies.rectangle(DIV1, dCY, 6, dH, { ...S, restitution: 0.3 }));
+    bodies.push(Bodies.rectangle(DIV2, dCY, 6, dH, { ...S, restitution: 0.3 }));
 
-    // Deflector caps on top of dividers (V-shape guides)
-    const capLen = Math.hypot(30, 20);
-    const capAngleL = Math.atan2(20, -30); // up-left
-    const capAngleR = Math.atan2(20, 30);  // up-right
-    // Left divider caps
-    bodies.push(Bodies.rectangle(DIV1_X - 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleL, restitution: 0.5 }));
-    bodies.push(Bodies.rectangle(DIV1_X + 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleR, restitution: 0.5 }));
-    // Right divider caps
-    bodies.push(Bodies.rectangle(DIV2_X - 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleL, restitution: 0.5 }));
-    bodies.push(Bodies.rectangle(DIV2_X + 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleR, restitution: 0.5 }));
+    // Deflector caps on dividers
+    const cL = Math.hypot(28, 18), aL = Math.atan2(18, -28), aR = Math.atan2(18, 28);
+    [DIV1, DIV2].forEach(dx => {
+      bodies.push(Bodies.rectangle(dx-14, DIV_TOP-9, cL, 5, { ...S, angle: aL, restitution: 0.5 }));
+      bodies.push(Bodies.rectangle(dx+14, DIV_TOP-9, cL, 5, { ...S, angle: aR, restitution: 0.5 }));
+    });
 
-    // Pins: 6 rows, 7/6 alternating
+    // Pins: 6 rows, 6/5 alternating (wide spacing)
     pinBodies = [];
-    for (let row = 0; row < PIN_ROWS; row++) {
-      const y = PIN_START_Y + row * PIN_SPACING_Y;
-      const isWideRow = row % 2 === 0;
-      const count = isWideRow ? 7 : 6;
-      const totalW = PIN_RIGHT_X - PIN_LEFT_X;
-      const spacing = totalW / (count - 1);
-      const startX = isWideRow ? PIN_LEFT_X : PIN_LEFT_X + spacing / 2;
-      for (let i = 0; i < count; i++) {
-        const pin = Bodies.circle(startX + i * spacing, y, PIN_R, {
-          isStatic: true, restitution: 0.6, friction: 0.01
-        });
-        pin.isPin = true;
-        pin.lastHitTime = 0;
-        pinBodies.push(pin);
-        bodies.push(pin);
+    for (let r = 0; r < PIN_ROWS; r++) {
+      const y = PIN_Y0 + r * PIN_DY;
+      const wide = r % 2 === 0, cnt = wide ? 6 : 5;
+      const sp = (PIN_X1 - PIN_X0) / (cnt - 1);
+      const x0 = wide ? PIN_X0 : PIN_X0 + sp / 2;
+      for (let i = 0; i < cnt; i++) {
+        const p = Bodies.circle(x0 + i * sp, y, PIN_R, { ...S, restitution: 0.7, friction: 0.005 });
+        p.isPin = true; p.hitT = 0;
+        pinBodies.push(p); bodies.push(p);
       }
     }
 
     Composite.add(engine.world, bodies);
 
-    // Create marbles
+    // Marbles
     marbles = [];
-    const shuffledPhotos = shuffle([...photos]);
-    shuffledPhotos.forEach((photo, i) => {
-      const x = 340 + Math.random() * 120;
-      const y = 70 + i * 9;
-      const body = Bodies.circle(x, y, MARBLE_R, {
-        restitution: 0.5, friction: 0.05, density: 0.002
+    shuffle([...photos]).forEach((photo, i) => {
+      const body = Bodies.circle(330 + Math.random() * 140, 50 + i * 9, MARBLE_R, {
+        restitution: 0.55, friction: 0.03, density: 0.0015
       });
-      body.isMarble = true;
-      body.assignment = null;
+      body.isMarble = true; body.assignment = null;
       marbles.push({
-        body, photo,
-        name: extractName(photo),
-        assignment: null,
-        settled: false,
-        slowFrames: 0,
-        texture: marbleTextures[photo] || null
+        body, photo, name: extractName(photo),
+        assignment: null, settled: false, slowFrames: 0,
+        settledPos: null, texture: marbleTextures[photo] || null
       });
       Composite.add(engine.world, body);
     });
@@ -389,55 +270,51 @@
   }
 
   // ============================================================
-  //  COLLISION & FORCE HANDLERS (strong forces for equal split)
+  //  COLLISIONS & FORCES
   // ============================================================
   function setupCollisions() {
-    collisionHandler = (event) => {
-      event.pairs.forEach(({ bodyA, bodyB }) => {
-        const marble = bodyA.isMarble ? bodyA : (bodyB.isMarble ? bodyB : null);
-        const pin = bodyA.isPin ? bodyA : (bodyB.isPin ? bodyB : null);
-        if (marble && pin && gateOpen && marble.assignment) {
-          const targetX = BUCKET_CX[marble.assignment];
-          const dx = targetX - marble.position.x;
-          // Strong directional nudge on each pin hit
-          Body.applyForce(marble, marble.position, { x: Math.sign(dx) * 0.003, y: 0 });
-          playPinSound();
-          pin.lastHitTime = performance.now();
+    collisionHandler = (ev) => {
+      ev.pairs.forEach(({ bodyA, bodyB }) => {
+        const m = bodyA.isMarble ? bodyA : (bodyB.isMarble ? bodyB : null);
+        const p = bodyA.isPin ? bodyA : (bodyB.isPin ? bodyB : null);
+        if (m && p && gateOpening && m.assignment) {
+          const dx = BKT_CX[m.assignment] - m.position.x;
+          Body.applyForce(m, m.position, { x: Math.sign(dx) * 0.003, y: 0 });
+          playPin();
+          p.hitT = performance.now();
         }
       });
     };
 
     updateHandler = () => {
-      if (!gateOpen) return;
+      if (!gateOpening) return;
       marbles.forEach(m => {
         if (m.settled) return;
-        const body = m.body;
+        const b = m.body;
 
-        // Anti-jam: nudge marbles still in hopper
-        if (body.position.y < HOPPER_BOT_Y + 30 && body.speed < 0.8) {
-          Body.applyForce(body, body.position, {
-            x: (Math.random() - 0.5) * 0.0005,
-            y: 0.0003
-          });
+        // Anti-jam in hopper
+        if (b.position.y < HOP.bl.y + 40 && b.speed < 1) {
+          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.001, y: 0.0005 });
+        }
+        // Anti-jam on pins
+        if (b.position.y > PIN_Y0 - 20 && b.position.y < BKT_TOP && b.speed < 0.3) {
+          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.003, y: 0.002 });
         }
 
         if (!m.assignment) return;
-        const targetX = BUCKET_CX[m.assignment];
-        const dx = targetX - body.position.x;
+        const dx = BKT_CX[m.assignment] - b.position.x;
 
-        // Continuous drift correction through pin field
-        if (body.position.y > HOPPER_BOT_Y + 50 && body.position.y < BUCKET_TOP) {
-          Body.applyForce(body, body.position, { x: dx * 0.00008, y: 0 });
+        // Continuous drift correction
+        if (b.position.y > HOP.bl.y + 50 && b.position.y < BKT_TOP) {
+          Body.applyForce(b, b.position, { x: dx * 0.0001, y: 0 });
         }
-
-        // Strong correction near bucket area
-        if (body.position.y >= DIV_TOP - 40) {
-          Body.applyForce(body, body.position, { x: dx * 0.0004, y: 0 });
+        // Strong correction near buckets
+        if (b.position.y >= DIV_TOP - 30) {
+          Body.applyForce(b, b.position, { x: dx * 0.0005, y: 0 });
         }
-
-        // Cap horizontal speed to keep it natural-looking
-        if (Math.abs(body.velocity.x) > 7) {
-          Body.setVelocity(body, { x: body.velocity.x * 0.85, y: body.velocity.y });
+        // Cap horizontal speed
+        if (Math.abs(b.velocity.x) > 6) {
+          Body.setVelocity(b, { x: b.velocity.x * 0.8, y: b.velocity.y });
         }
       });
     };
@@ -451,36 +328,31 @@
   // ============================================================
   function onStart() {
     if (state !== 'idle') return;
-    initAudio();
+    initAudio(); playGate();
     state = 'starting';
+    gateOpening = true; gateAnim = 0;
 
-    // Zoom camera out
-    cameraTarget.centerY = 500;
-    cameraTarget.zoom = 1.0;
+    camTarget.cy = CH / 2;
+    camTarget.zoom = 1.0;
 
-    // Pre-assign marbles to buckets (equal split: 7/6/6)
-    const shuffled = shuffle([...marbles]);
-    shuffled.forEach((m, i) => {
-      m.assignment = COLOR_NAMES[i % 3];
-      m.body.assignment = m.assignment;
-    });
+    const sh = shuffle([...marbles]);
+    sh.forEach((m, i) => { m.assignment = COLOR_NAMES[i % 3]; m.body.assignment = m.assignment; });
+    bucketTotals.green = bucketTotals.blue = bucketTotals.magenta = 0;
+    sh.forEach(m => bucketTotals[m.assignment]++);
+  }
 
-    // Delay gate opening until camera has zoomed out
-    setTimeout(() => {
-      if (state !== 'starting') return;
-      state = 'running';
-      gateOpen = true;
-      playGateSound();
-      Composite.remove(engine.world, gateBody);
-
-      // Nudge marbles to start flowing
-      marbles.forEach(m => {
-        Body.applyForce(m.body, m.body.position, {
-          x: (Math.random() - 0.5) * 0.002,
-          y: 0.001
-        });
-      });
-    }, 1200);
+  function updateGate() {
+    if (!gateOpening || gateAnim >= 1) return;
+    gateAnim = Math.min(1, gateAnim + 0.02);
+    const off = gateAnim * 120, drop = gateAnim * 60;
+    if (gateBodyL) Body.setPosition(gateBodyL, { x: 381 - off, y: GATE_Y + drop });
+    if (gateBodyR) Body.setPosition(gateBodyR, { x: 419 + off, y: GATE_Y + drop });
+    if (gateAnim >= 1) {
+      if (gateBodyL) Composite.remove(engine.world, gateBodyL);
+      if (gateBodyR) Composite.remove(engine.world, gateBodyR);
+      gateBodyL = gateBodyR = null;
+      if (state === 'starting') state = 'running';
+    }
   }
 
   function checkSettled() {
@@ -488,54 +360,38 @@
     marbles.forEach(m => {
       if (m.settled) return;
       const { x, y } = m.body.position;
-      const speed = m.body.speed;
-      if (y > BUCKET_TOP + 20 && speed < 0.5) {
+      if (y > BKT_TOP + 15 && m.body.speed < 0.4) {
         m.slowFrames++;
-        if (m.slowFrames > 40) {
+        if (m.slowFrames > 45) {
           m.settled = true;
+          const idx = bucketCounts[m.assignment]++;
+          m.settledPos = getStackPos(m.assignment, idx);
+          Body.setPosition(m.body, m.settledPos);
           Body.setStatic(m.body, true);
-          playLandingSound();
+          Body.setVelocity(m.body, { x: 0, y: 0 });
+          playLand();
         }
-      } else {
-        m.slowFrames = 0;
-      }
-      // Off-screen recovery
+      } else { m.slowFrames = 0; }
       if (y > 1100 || x < -50 || x > 850) {
         Body.setPosition(m.body, { x: 400, y: 100 });
         Body.setVelocity(m.body, { x: 0, y: 0 });
       }
     });
-    if (marbles.every(m => m.settled)) onComplete();
-  }
-
-  function onComplete() {
-    state = 'complete';
-    completeTime = performance.now();
-    launchConfetti();
-    playCompleteSound();
+    if (marbles.every(m => m.settled)) { state = 'complete'; completeTime = performance.now(); launchConfetti(); playDone(); }
   }
 
   function onReset() {
     if (state !== 'complete') return;
-    state = 'idle';
-    showNames = false;
-    overlayAlpha = 0;
-    gateOpen = false;
-    confetti.length = 0;
-    lastTimestamp = null;
-
-    // Reset camera
-    camera.centerY = 150;
-    camera.zoom = 2.2;
-    cameraTarget.centerY = 150;
-    cameraTarget.zoom = 2.2;
-
+    state = 'idle'; showNames = false; overlayAlpha = 0;
+    gateOpening = false; gateAnim = 0; confetti.length = 0; lastTimestamp = null;
+    bucketCounts.green = bucketCounts.blue = bucketCounts.magenta = 0;
+    const z = getIdleZoom();
+    camera.cy = 150; camera.zoom = z;
+    camTarget.cy = 150; camTarget.zoom = z;
     Events.off(engine, 'collisionStart', collisionHandler);
     Events.off(engine, 'beforeUpdate', updateHandler);
     Composite.clear(engine.world);
-    marbles = [];
-    pinBodies = [];
-    gateBody = null;
+    marbles = []; pinBodies = []; gateBodyL = gateBodyR = null;
     createWorld();
   }
 
@@ -543,399 +399,305 @@
   //  CONFETTI
   // ============================================================
   function launchConfetti() {
-    const cols = ['#00e676', '#00b0ff', '#e040fb', '#ffeb3b', '#ff9800', '#ffffff'];
-    for (let i = 0; i < 150; i++) {
-      confetti.push({
-        x: CW * Math.random(),
-        y: -20 - Math.random() * 300,
-        w: 5 + Math.random() * 10,
-        h: 3 + Math.random() * 6,
-        color: cols[Math.floor(Math.random() * cols.length)],
-        vy: 2 + Math.random() * 3,
-        vx: (Math.random() - 0.5) * 2,
-        rot: Math.random() * Math.PI * 2,
-        rotV: (Math.random() - 0.5) * 0.2,
-        opacity: 1,
-      });
-    }
+    const c = ['#00e676','#00b0ff','#e040fb','#ffeb3b','#ff9800','#fff'];
+    for (let i = 0; i < 180; i++) confetti.push({
+      x: vw * Math.random(), y: -20 - Math.random() * 400,
+      w: 4 + Math.random() * 10, h: 3 + Math.random() * 6,
+      color: c[0|Math.random()*c.length],
+      vy: 1.5 + Math.random() * 3, vx: (Math.random()-0.5)*2.5,
+      rot: Math.random()*6.28, rv: (Math.random()-0.5)*0.2, op: 1
+    });
   }
 
-  function updateAndDrawConfetti() {
-    for (let i = confetti.length - 1; i >= 0; i--) {
+  function drawConfetti() {
+    for (let i = confetti.length-1; i >= 0; i--) {
       const c = confetti[i];
-      c.x += c.vx;
-      c.y += c.vy;
-      c.rot += c.rotV;
-      if (c.y > CH + 50) c.opacity -= 0.03;
-      if (c.opacity <= 0) { confetti.splice(i, 1); continue; }
-      ctx.save();
-      ctx.translate(c.x, c.y);
-      ctx.rotate(c.rot);
-      ctx.globalAlpha = c.opacity;
-      ctx.fillStyle = c.color;
-      ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
-      ctx.restore();
+      c.x += c.vx; c.y += c.vy; c.rot += c.rv;
+      if (c.y > vh + 50) c.op -= 0.03;
+      if (c.op <= 0) { confetti.splice(i,1); continue; }
+      ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot);
+      ctx.globalAlpha = c.op; ctx.fillStyle = c.color;
+      ctx.fillRect(-c.w/2, -c.h/2, c.w, c.h); ctx.restore();
     }
   }
 
   // ============================================================
-  //  DRAWING — WORLD SPACE (affected by camera)
+  //  DRAW — WORLD SPACE
   // ============================================================
   function drawHopper() {
     ctx.save();
-    const grad = ctx.createLinearGradient(150, 0, 180, 0);
-    grad.addColorStop(0, '#666');
-    grad.addColorStop(0.5, '#aaa');
-    grad.addColorStop(1, '#666');
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 10;
-    ctx.lineCap = 'round';
+    // Metallic gradient
+    const g = ctx.createLinearGradient(HOP.tl.x, 0, HOP.tr.x, 0);
+    g.addColorStop(0, '#3e3e3e'); g.addColorStop(0.2, '#7a7a7a');
+    g.addColorStop(0.4, '#b0b0b0'); g.addColorStop(0.5, '#c8c8c8');
+    g.addColorStop(0.6, '#b0b0b0'); g.addColorStop(0.8, '#7a7a7a');
+    g.addColorStop(1, '#3e3e3e');
 
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TL.x, HOPPER_TL.y);
-    ctx.lineTo(HOPPER_BL.x, HOPPER_BL.y);
-    ctx.stroke();
+    ctx.strokeStyle = g; ctx.lineWidth = 16; ctx.lineCap = 'round';
+    // Left wall
+    ctx.beginPath(); ctx.moveTo(HOP.tl.x, HOP.tl.y); ctx.lineTo(HOP.bl.x, HOP.bl.y); ctx.stroke();
+    // Right wall
+    ctx.beginPath(); ctx.moveTo(HOP.tr.x, HOP.tr.y); ctx.lineTo(HOP.br.x, HOP.br.y); ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TR.x, HOPPER_TR.y);
-    ctx.lineTo(HOPPER_BR.x, HOPPER_BR.y);
-    ctx.stroke();
+    // Inner highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(HOP.tl.x+8, HOP.tl.y+4); ctx.lineTo(HOP.bl.x+4, HOP.bl.y-2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(HOP.tr.x-8, HOP.tr.y+4); ctx.lineTo(HOP.br.x-4, HOP.br.y-2); ctx.stroke();
 
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TL.x - 5, HOPPER_TL.y);
-    ctx.lineTo(HOPPER_TR.x + 5, HOPPER_TR.y);
-    ctx.stroke();
-
-    // Rivets
-    ctx.fillStyle = '#888';
-    for (let t = 0.15; t <= 0.85; t += 0.35) {
-      const lx = HOPPER_TL.x + (HOPPER_BL.x - HOPPER_TL.x) * t;
-      const ly = HOPPER_TL.y + (HOPPER_BL.y - HOPPER_TL.y) * t;
-      ctx.beginPath(); ctx.arc(lx - 3, ly, 3, 0, Math.PI * 2); ctx.fill();
-      const rx = HOPPER_TR.x + (HOPPER_BR.x - HOPPER_TR.x) * t;
-      const ry = HOPPER_TR.y + (HOPPER_BR.y - HOPPER_TR.y) * t;
-      ctx.beginPath(); ctx.arc(rx + 3, ry, 3, 0, Math.PI * 2); ctx.fill();
-    }
+    // Outer shadow
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(HOP.tl.x-9, HOP.tl.y-2); ctx.lineTo(HOP.bl.x-5, HOP.bl.y+2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(HOP.tr.x+9, HOP.tr.y-2); ctx.lineTo(HOP.br.x+5, HOP.br.y+2); ctx.stroke();
     ctx.restore();
   }
 
   function drawGate() {
-    if (gateOpen) return;
-    ctx.fillStyle = '#c0392b';
-    ctx.beginPath();
-    ctx.roundRect(362, GATE_Y - 5, 76, 10, 3);
-    ctx.fill();
-    ctx.fillStyle = '#e74c3c';
-    ctx.beginPath();
-    ctx.arc(400, GATE_Y, 5, 0, Math.PI * 2);
-    ctx.fill();
+    if (gateAnim >= 1) return;
+    const off = gateAnim * 120, drop = gateAnim * 60, alpha = 1 - gateAnim * 0.8;
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#6b7280';
+    ctx.beginPath(); ctx.roundRect(358-off, GATE_Y-5+drop, 42, 10, 4); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(400+off, GATE_Y-5+drop, 42, 10, 4); ctx.fill();
+    ctx.fillStyle = '#9ca3af';
+    ctx.beginPath(); ctx.arc(400, GATE_Y+drop, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
   }
 
   function drawPins() {
     const now = performance.now();
-    pinBodies.forEach(pin => {
-      const { x, y } = pin.position;
-      const isRecent = (now - pin.lastHitTime) < 120;
-      const grad = ctx.createRadialGradient(x - 1, y - 1, 0, x, y, PIN_R);
-      grad.addColorStop(0, isRecent ? '#fff' : '#bbb');
-      grad.addColorStop(1, isRecent ? '#999' : '#555');
-      ctx.beginPath();
-      ctx.arc(x, y, PIN_R, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      if (isRecent) {
-        ctx.beginPath();
-        ctx.arc(x, y, PIN_R + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+    pinBodies.forEach(p => {
+      const { x, y } = p.position, hit = (now - p.hitT) < 100;
+      const g = ctx.createRadialGradient(x-0.5, y-0.5, 0, x, y, PIN_R);
+      g.addColorStop(0, hit ? '#fff' : '#999');
+      g.addColorStop(1, hit ? '#777' : '#444');
+      ctx.beginPath(); ctx.arc(x, y, PIN_R, 0, Math.PI*2);
+      ctx.fillStyle = g; ctx.fill();
+      if (hit) {
+        ctx.beginPath(); ctx.arc(x, y, PIN_R+4, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1; ctx.stroke();
       }
     });
   }
 
-  function drawWalls() {
-    ctx.strokeStyle = '#2a2a3a';
-    ctx.lineWidth = 4;
-    // Side walls
-    ctx.beginPath(); ctx.moveTo(WALL_X_L, HOPPER_BOT_Y); ctx.lineTo(WALL_X_L, BUCKET_BOT); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(WALL_X_R, HOPPER_BOT_Y); ctx.lineTo(WALL_X_R, BUCKET_BOT); ctx.stroke();
-    // Floor
-    ctx.beginPath(); ctx.moveTo(WALL_X_L, BUCKET_BOT); ctx.lineTo(WALL_X_R, BUCKET_BOT); ctx.stroke();
-  }
-
   function drawBuckets() {
-    const buckets = [
-      { x: WALL_X_L, w: DIV1_X - WALL_X_L, color: 'green', label: 'Group 1' },
-      { x: DIV1_X, w: DIV2_X - DIV1_X, color: 'blue', label: 'Group 2' },
-      { x: DIV2_X, w: WALL_X_R - DIV2_X, color: 'magenta', label: 'Group 3' },
+    const bkts = [
+      { x: 103, w: 194, key: 'green', label: 'Group 1' },
+      { x: 303, w: 194, key: 'blue', label: 'Group 2' },
+      { x: 503, w: 194, key: 'magenta', label: 'Group 3' },
     ];
-    buckets.forEach(b => {
-      const c = COLORS[b.color];
-      ctx.fillStyle = c + '12';
-      ctx.fillRect(b.x + 3, BUCKET_TOP + 2, b.w - 6, BUCKET_BOT - BUCKET_TOP - 4);
-      ctx.strokeStyle = c + '55';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(b.x + 3, BUCKET_TOP);
-      ctx.lineTo(b.x + b.w - 3, BUCKET_TOP);
-      ctx.stroke();
-      ctx.fillStyle = c;
-      ctx.font = 'bold 13px "Segoe UI", sans-serif';
+    bkts.forEach(b => {
+      const c = COLORS[b.key], h = BKT_BOT - BKT_TOP - 8;
+      // Rounded background
+      ctx.fillStyle = c + '0a';
+      ctx.beginPath(); ctx.roundRect(b.x, BKT_TOP+4, b.w, h, 14); ctx.fill();
+      // Border
+      ctx.strokeStyle = c + '28';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(b.x, BKT_TOP+4, b.w, h, 14); ctx.stroke();
+      // Label
+      ctx.fillStyle = c + 'cc';
+      ctx.font = '600 13px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(b.label, b.x + b.w / 2, BUCKET_TOP - 8);
+      ctx.fillText(b.label, b.x + b.w/2, BKT_TOP - 6);
     });
 
-    // Dividers with deflector caps
-    ctx.strokeStyle = '#3a3a4a';
-    ctx.lineWidth = 5;
-    [DIV1_X, DIV2_X].forEach(dx => {
-      ctx.beginPath(); ctx.moveTo(dx, DIV_TOP); ctx.lineTo(dx, BUCKET_BOT); ctx.stroke();
-      // V-cap
-      ctx.lineWidth = 4;
+    // Divider caps (V shape)
+    ctx.strokeStyle = '#2a2a3a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    [DIV1, DIV2].forEach(dx => {
       ctx.beginPath();
-      ctx.moveTo(dx - 25, DIV_TOP - 18);
-      ctx.lineTo(dx, DIV_TOP);
-      ctx.lineTo(dx + 25, DIV_TOP - 18);
+      ctx.moveTo(dx-22, DIV_TOP-16); ctx.lineTo(dx, DIV_TOP); ctx.lineTo(dx+22, DIV_TOP-16);
       ctx.stroke();
-      ctx.lineWidth = 5;
     });
   }
 
   function drawMarbles() {
     marbles.forEach(m => {
-      const { x, y } = m.body.position;
-      ctx.save();
-      ctx.translate(x, y);
+      const pos = m.settled ? m.settledPos : m.body.position;
+      if (!pos) return;
+      ctx.save(); ctx.translate(pos.x, pos.y);
+      // Photo
       if (m.texture) {
-        ctx.drawImage(m.texture, -MARBLE_R, -MARBLE_R, MARBLE_R * 2, MARBLE_R * 2);
+        ctx.drawImage(m.texture, -MARBLE_R, -MARBLE_R, MARBLE_R*2, MARBLE_R*2);
       } else {
-        ctx.beginPath();
-        ctx.arc(0, 0, MARBLE_R - 2, 0, Math.PI * 2);
-        ctx.fillStyle = '#555';
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, MARBLE_R-2, 0, Math.PI*2);
+        ctx.fillStyle = '#444'; ctx.fill();
       }
-      // Border
-      ctx.beginPath();
-      ctx.arc(0, 0, MARBLE_R - 1, 0, Math.PI * 2);
+      // Border: neutral until settled, then group color
+      ctx.beginPath(); ctx.arc(0, 0, MARBLE_R-1, 0, Math.PI*2);
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = m.assignment ? COLORS[m.assignment] : '#999';
+      ctx.strokeStyle = m.settled ? COLORS[m.assignment] : 'rgba(255,255,255,0.25)';
       ctx.stroke();
       // Glass highlight
-      ctx.beginPath();
-      ctx.arc(-MARBLE_R * 0.28, -MARBLE_R * 0.28, MARBLE_R * 0.22, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.13)';
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(-MARBLE_R*0.25, -MARBLE_R*0.25, MARBLE_R*0.2, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fill();
       ctx.restore();
     });
   }
 
   // ============================================================
-  //  DRAWING — SCREEN SPACE (not affected by camera)
+  //  DRAW — SCREEN SPACE
   // ============================================================
-  function drawBackground() {
+  function drawBg() {
     ctx.fillStyle = '#0f0f1a';
-    ctx.fillRect(0, 0, CW, CH);
-    const grad = ctx.createRadialGradient(400, 400, 50, 400, 400, 500);
-    grad.addColorStop(0, 'rgba(255,255,255,0.015)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CW, CH);
+    ctx.fillRect(0, 0, vw, vh);
   }
 
   function drawTitle() {
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 28px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('The Randomizer', 400, 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 26px "Inter", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('The Randomizer', vw/2, 14);
   }
 
-  function drawButton() {
-    const btn = { x: 400, y: 945, w: 180, h: 50 };
+  function drawBtn() {
     let text;
     if (state === 'idle') text = '\u25B6  START';
-    else if (state === 'complete') text = '\u21BA  RESET';
+    else if (state === 'complete' && showNames) text = '\u21BA  RESET';
     else return;
 
+    const bx = vw/2, by = vh - 42, bw = 190, bh = 50;
     ctx.save();
-    ctx.shadowColor = 'rgba(224, 64, 251, 0.4)';
-    ctx.shadowBlur = 25;
-    ctx.shadowOffsetY = 4;
-    const grad = ctx.createLinearGradient(btn.x - btn.w / 2, 0, btn.x + btn.w / 2, 0);
-    grad.addColorStop(0, COLORS.green);
-    grad.addColorStop(0.5, COLORS.blue);
-    grad.addColorStop(1, COLORS.magenta);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(btn.x - btn.w / 2, btn.y - btn.h / 2, btn.w, btn.h, btn.h / 2);
-    ctx.fill();
+    ctx.shadowColor = 'rgba(224,64,251,0.35)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 3;
+    const g = ctx.createLinearGradient(bx-bw/2, 0, bx+bw/2, 0);
+    g.addColorStop(0, COLORS.green); g.addColorStop(0.5, COLORS.blue); g.addColorStop(1, COLORS.magenta);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.roundRect(bx-bw/2, by-bh/2, bw, bh, bh/2); ctx.fill();
     ctx.restore();
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 20px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, btn.x, btn.y);
+    ctx.fillStyle = '#fff'; ctx.font = '700 18px "Inter", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, bx, by);
   }
 
-  function drawNamesOverlay() {
+  function drawOverlay() {
     if (!showNames || overlayAlpha <= 0) return;
-    ctx.save();
-    ctx.globalAlpha = overlayAlpha;
+    ctx.save(); ctx.globalAlpha = overlayAlpha;
 
-    ctx.fillStyle = 'rgba(15, 15, 26, 0.94)';
-    ctx.beginPath(); ctx.roundRect(75, 180, 650, 520, 16); ctx.fill();
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(75, 180, 650, 520, 16); ctx.stroke();
+    const pad = Math.max(20, vw*0.03);
+    const ow = Math.min(780, vw - pad*2), oh = Math.min(680, vh - pad*2 - 60);
+    const ox = (vw-ow)/2, oy = Math.max(55, (vh-oh)/2);
 
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 24px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Results', 400, 225);
-    ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(120, 245); ctx.lineTo(680, 245); ctx.stroke();
+    // Background
+    ctx.fillStyle = 'rgba(12,12,22,0.97)';
+    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 20); ctx.fill();
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 20); ctx.stroke();
 
+    // Title
+    ctx.fillStyle = '#fff'; ctx.font = '700 30px "Inter", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('Results', vw/2, oy+48);
+    ctx.strokeStyle = '#1f1f2f'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ox+30, oy+68); ctx.lineTo(ox+ow-30, oy+68); ctx.stroke();
+
+    // Columns
     const groups = { green: [], blue: [], magenta: [] };
     marbles.forEach(m => groups[m.assignment].push(m));
+    const colW = ow / 3;
 
     [
-      { key: 'green', cx: 195, label: 'Group 1' },
-      { key: 'blue', cx: 400, label: 'Group 2' },
-      { key: 'magenta', cx: 605, label: 'Group 3' },
+      { key: 'green', cx: ox+colW*0.5, label: 'Group 1' },
+      { key: 'blue', cx: ox+colW*1.5, label: 'Group 2' },
+      { key: 'magenta', cx: ox+colW*2.5, label: 'Group 3' },
     ].forEach(col => {
-      ctx.fillStyle = COLORS[col.key];
-      ctx.font = 'bold 15px "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(col.label, col.cx, 278);
-      ctx.strokeStyle = COLORS[col.key] + '44';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(col.cx - 55, 288); ctx.lineTo(col.cx + 55, 288); ctx.stroke();
+      ctx.fillStyle = COLORS[col.key]; ctx.font = '700 17px "Inter", sans-serif';
+      ctx.textAlign = 'center'; ctx.fillText(col.label, col.cx, oy+100);
+      ctx.strokeStyle = COLORS[col.key]+'33'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(col.cx-55, oy+112); ctx.lineTo(col.cx+55, oy+112); ctx.stroke();
 
       groups[col.key].forEach((m, i) => {
-        const rowY = 315 + i * 34;
+        const ry = oy + 140 + i * 46;
         if (m.texture) {
           ctx.save();
-          ctx.beginPath(); ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2); ctx.clip();
-          ctx.drawImage(m.texture, col.cx - 64, rowY - 12, 24, 24);
+          ctx.beginPath(); ctx.arc(col.cx-58, ry, 15, 0, Math.PI*2); ctx.clip();
+          ctx.drawImage(m.texture, col.cx-73, ry-15, 30, 30);
           ctx.restore();
-          ctx.beginPath(); ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2);
-          ctx.strokeStyle = COLORS[col.key] + '77'; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.beginPath(); ctx.arc(col.cx-58, ry, 15, 0, Math.PI*2);
+          ctx.strokeStyle = COLORS[col.key]+'66'; ctx.lineWidth = 2; ctx.stroke();
         }
-        ctx.fillStyle = '#ddd';
-        ctx.font = '13px "Segoe UI", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(m.name, col.cx - 34, rowY + 5);
+        ctx.fillStyle = '#e0e0e0'; ctx.font = '400 15px "Inter", sans-serif';
+        ctx.textAlign = 'left'; ctx.fillText(m.name, col.cx-36, ry+5);
       });
     });
     ctx.restore();
   }
 
-  function drawLoadingScreen() {
-    ctx.fillStyle = '#0f0f1a';
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.fillStyle = '#888';
-    ctx.font = '20px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Loading...', 400, 500);
+  function drawLoading() {
+    ctx.fillStyle = '#0f0f1a'; ctx.fillRect(0,0,vw,vh);
+    ctx.fillStyle = '#555'; ctx.font = '400 18px "Inter", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Loading...', vw/2, vh/2);
   }
 
   // ============================================================
   //  RENDER
   // ============================================================
   function render() {
-    if (state === 'loading') { drawLoadingScreen(); return; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state === 'loading') { drawLoading(); return; }
 
-    // Screen-space background
-    drawBackground();
+    drawBg();
 
-    // World-space elements (affected by camera zoom/pan)
-    ctx.save();
-    applyCameraTransform();
+    // World
+    ctx.save(); applyCam();
     drawBuckets();
-    drawWalls();
     drawPins();
     drawMarbles();
     drawHopper();
     drawGate();
     ctx.restore();
 
-    // Screen-space UI
+    // UI
     drawTitle();
-    drawButton();
-
+    drawBtn();
     if (state === 'complete') {
-      const elapsed = performance.now() - completeTime;
-      if (elapsed > 2000) {
-        showNames = true;
-        overlayAlpha = Math.min(1, (elapsed - 2000) / 600);
-      }
+      const el = performance.now() - completeTime;
+      if (el > 1800) { showNames = true; overlayAlpha = Math.min(1, (el-1800)/500); }
     }
-    drawNamesOverlay();
-    updateAndDrawConfetti();
+    drawOverlay();
+    drawConfetti();
   }
 
   // ============================================================
-  //  MAIN LOOP
+  //  GAME LOOP
   // ============================================================
-  function gameLoop(ts) {
+  function loop(ts) {
     if (state !== 'loading') {
-      if (lastTimestamp !== null) {
-        const delta = Math.min(ts - lastTimestamp, 32);
-        Engine.update(engine, delta);
-      }
+      if (lastTimestamp !== null) Engine.update(engine, Math.min(ts - lastTimestamp, 32));
       lastTimestamp = ts;
       updateCamera();
+      updateGate();
       if (state === 'running') checkSettled();
     }
     render();
-    requestAnimationFrame(gameLoop);
+    requestAnimationFrame(loop);
   }
 
   // ============================================================
   //  INPUT
   // ============================================================
-  const BTN_HIT = { x: 400, y: 945, w: 180, h: 50 };
+  function btnRect() { return { x: vw/2, y: vh-42, w: 190, h: 50 }; }
 
-  function handleClick(x, y) {
-    if (state === 'idle' && isInsideBtn(x, y, BTN_HIT)) onStart();
-    else if (state === 'complete' && isInsideBtn(x, y, BTN_HIT)) onReset();
+  function onClick(px, py) {
+    const b = btnRect();
+    if (state === 'idle' && isIn(px, py, b)) onStart();
+    else if (state === 'complete' && showNames && isIn(px, py, b)) onReset();
   }
 
-  canvas.addEventListener('click', (e) => {
-    const c = getCanvasCoords(e);
-    handleClick(c.x, c.y);
-  });
-
-  canvas.addEventListener('touchstart', (e) => {
+  canvas.addEventListener('click', e => onClick(e.clientX, e.clientY));
+  canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    handleClick(
-      (touch.clientX - rect.left) * (CW / rect.width),
-      (touch.clientY - rect.top) * (CH / rect.height)
-    );
+    const t = e.touches[0]; onClick(t.clientX, t.clientY);
   }, { passive: false });
-
-  canvas.addEventListener('mousemove', (e) => {
-    const { x, y } = getCanvasCoords(e);
-    canvas.style.cursor = (state === 'idle' || state === 'complete') && isInsideBtn(x, y, BTN_HIT)
-      ? 'pointer' : 'default';
+  canvas.addEventListener('mousemove', e => {
+    const b = btnRect();
+    canvas.style.cursor = ((state==='idle') || (state==='complete' && showNames)) && isIn(e.clientX, e.clientY, b) ? 'pointer' : 'default';
   });
 
   // ============================================================
   //  INIT
   // ============================================================
+  camera.zoom = camTarget.zoom = getIdleZoom();
   requestAnimationFrame(() => render());
-
-  preloadImages(() => {
-    createAllTextures();
-    createWorld();
-    state = 'idle';
-    requestAnimationFrame(gameLoop);
-  });
+  preload(() => { makeTextures(); createWorld(); state = 'idle'; requestAnimationFrame(loop); });
 
   </script>
 </body>
