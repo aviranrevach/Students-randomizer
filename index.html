@@ -196,20 +196,21 @@
     // Ceiling
     bodies.push(Bodies.rectangle(400, BOWL_CY - BOWL_R - 10, 810, 8, S));
 
-    // Bowl: semicircular arc with gap at bottom for gate
+    // Bowl: bottom semicircle (angles 0→PI through PI/2) with gate gap
     const bowlSegs = 16;
-    const leftEnd = 1.5 * Math.PI - GATE_HALF_ANGLE;
-    const rightStart = 1.5 * Math.PI + GATE_HALF_ANGLE;
-    // Left arc (PI to leftEnd)
+    const gateA = Math.PI / 2; // gate at the very bottom
+    // Right arc: 0 → (PI/2 - gateHalfAngle)
+    const rightEnd = gateA - GATE_HALF_ANGLE;
     for (let i = 0; i < bowlSegs / 2; i++) {
-      const a1 = Math.PI + (i / (bowlSegs / 2)) * (leftEnd - Math.PI);
-      const a2 = Math.PI + ((i + 1) / (bowlSegs / 2)) * (leftEnd - Math.PI);
+      const a1 = (i / (bowlSegs / 2)) * rightEnd;
+      const a2 = ((i + 1) / (bowlSegs / 2)) * rightEnd;
       bodies.push(makeArcSeg(BOWL_CX, BOWL_CY, BOWL_R, a1, a2, { ...S, restitution: 0.3, friction: 0.05 }));
     }
-    // Right arc (rightStart to 2*PI)
+    // Left arc: (PI/2 + gateHalfAngle) → PI
+    const leftStart = gateA + GATE_HALF_ANGLE;
     for (let i = 0; i < bowlSegs / 2; i++) {
-      const a1 = rightStart + (i / (bowlSegs / 2)) * (2 * Math.PI - rightStart);
-      const a2 = rightStart + ((i + 1) / (bowlSegs / 2)) * (2 * Math.PI - rightStart);
+      const a1 = leftStart + (i / (bowlSegs / 2)) * (Math.PI - leftStart);
+      const a2 = leftStart + ((i + 1) / (bowlSegs / 2)) * (Math.PI - leftStart);
       bodies.push(makeArcSeg(BOWL_CX, BOWL_CY, BOWL_R, a1, a2, { ...S, restitution: 0.3, friction: 0.05 }));
     }
 
@@ -230,8 +231,8 @@
     [BKT_CX.green, BKT_CX.blue, BKT_CX.magenta].forEach(cx => {
       const segs = 10, r = BKT_R - 4;
       for (let i = 0; i < segs; i++) {
-        const a1 = Math.PI + (i / segs) * Math.PI;
-        const a2 = Math.PI + ((i + 1) / segs) * Math.PI;
+        const a1 = (i / segs) * Math.PI;
+        const a2 = ((i + 1) / segs) * Math.PI;
         bodies.push(makeArcSeg(cx, BKT_BOT - r, r, a1, a2, { ...S, restitution: 0.15, friction: 0.3 }));
       }
     });
@@ -423,7 +424,7 @@
     ctx.lineWidth = 16;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(BOWL_CX, BOWL_CY + 4, BOWL_R + 2, Math.PI, 0, false);
+    ctx.arc(BOWL_CX, BOWL_CY + 4, BOWL_R + 2, Math.PI, 0, true);
     ctx.stroke();
 
     // Metallic gradient
@@ -435,15 +436,15 @@
 
     if (gateAnim < 0.05) {
       ctx.beginPath();
-      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, Math.PI, 0, false);
+      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, Math.PI, 0, true);
       ctx.stroke();
     } else {
       const gap = GATE_HALF_ANGLE + gateAnim * 0.35;
       ctx.beginPath();
-      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, Math.PI, 1.5 * Math.PI - gap, false);
+      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, Math.PI, Math.PI / 2 + gap, true);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, 1.5 * Math.PI + gap, 2 * Math.PI, false);
+      ctx.arc(BOWL_CX, BOWL_CY, BOWL_R, Math.PI / 2 - gap, 0, true);
       ctx.stroke();
     }
 
@@ -451,7 +452,7 @@
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(BOWL_CX, BOWL_CY, BOWL_R - 7, Math.PI + 0.1, -0.1, false);
+    ctx.arc(BOWL_CX, BOWL_CY, BOWL_R - 7, Math.PI - 0.1, 0.1, true);
     ctx.stroke();
 
     ctx.restore();
@@ -516,7 +517,7 @@
       ctx.beginPath();
       ctx.moveTo(left + 3, BKT_TOP);
       ctx.lineTo(left + 3, arcCY + 4);
-      ctx.arc(b.cx + 2, arcCY + 4, BKT_R, Math.PI, 0, false);
+      ctx.arc(b.cx + 2, arcCY + 4, BKT_R, Math.PI, 0, true);
       ctx.lineTo(right + 3, BKT_TOP);
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.fill();
@@ -526,7 +527,7 @@
       ctx.beginPath();
       ctx.moveTo(left, BKT_TOP);
       ctx.lineTo(left, arcCY);
-      ctx.arc(b.cx, arcCY, BKT_R, Math.PI, 0, false);
+      ctx.arc(b.cx, arcCY, BKT_R, Math.PI, 0, true);
       ctx.lineTo(right, BKT_TOP);
       ctx.fillStyle = c + '30';
       ctx.fill();
@@ -535,7 +536,7 @@
       ctx.beginPath();
       ctx.moveTo(left, BKT_TOP);
       ctx.lineTo(left, arcCY);
-      ctx.arc(b.cx, arcCY, BKT_R, Math.PI, 0, false);
+      ctx.arc(b.cx, arcCY, BKT_R, Math.PI, 0, true);
       ctx.lineTo(right, BKT_TOP);
       ctx.strokeStyle = c + '55';
       ctx.lineWidth = 5;
