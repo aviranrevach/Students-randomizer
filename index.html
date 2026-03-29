@@ -112,13 +112,7 @@
     camera.zoom = lerp(camera.zoom, camTarget.zoom, 0.04);
   }
 
-  function applyCam() {
-    const bs = Math.min(vw / CW, (vh - 50) / CH);
-    const s = bs * camera.zoom;
-    ctx.translate(vw / 2, 50 + (vh - 50) / 2);
-    ctx.scale(s, s);
-    ctx.translate(-CW / 2, -camera.cy);
-  }
+  // Camera transform is applied inline in render() to support split-screen
 
   function isIn(px, py, b) {
     return px >= b.x-b.w/2 && px <= b.x+b.w/2 && py >= b.y-b.h/2 && py <= b.y+b.h/2;
@@ -642,12 +636,7 @@
     ctx.fillRect(0, 0, vw, vh);
   }
 
-  function drawTitle() {
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 26px "Inter", sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('The Randomizer', vw / 2, 14);
-  }
+  // Title is drawn inline in render() to center over game area
 
   function drawBtn() {
     const bx = vw / 2, by = vh - 42;
@@ -759,29 +748,29 @@
     }
   }
 
-  let resultSlide = 0; // 0 = offscreen right, 1 = fully visible
+  let resultSlide = 0; // 0→1 animation progress
 
-  function drawOverlay() {
-    if (!showNames) { resultSlide = 0; return; }
+  // How much of the screen the results panel takes (0 to 0.5)
+  function getResultsWidth() {
+    if (!showNames) return 0;
+    resultSlide = Math.min(1, resultSlide + 0.03);
+    const ease = 1 - Math.pow(1 - resultSlide, 3);
+    return ease * 0.5; // takes up right half
+  }
 
-    // Slide in from the right
-    resultSlide = Math.min(1, resultSlide + 0.035);
-    const ease = 1 - Math.pow(1 - resultSlide, 3); // ease-out cubic
-    const slideX = vw * (1 - ease); // starts at vw, ends at 0
+  function drawOverlay(panelFrac) {
+    if (panelFrac < 0.01) return;
 
-    ctx.save();
-    ctx.translate(slideX, 0);
+    const pw = vw * panelFrac; // panel pixel width
+    const px = vw - pw; // panel left edge
 
-    // Full-screen dark backdrop
+    // Panel background
     ctx.fillStyle = '#0c0c18';
-    ctx.fillRect(0, 0, vw, vh);
+    ctx.fillRect(px, 0, pw, vh);
 
-    // Subtle gradient overlay
-    const bgG = ctx.createLinearGradient(0, 0, vw, vh);
-    bgG.addColorStop(0, 'rgba(30,30,50,0.5)');
-    bgG.addColorStop(1, 'rgba(10,10,20,0.5)');
-    ctx.fillStyle = bgG;
-    ctx.fillRect(0, 0, vw, vh);
+    // Subtle edge highlight
+    ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, vh); ctx.stroke();
 
     const groups = { green: [], blue: [], magenta: [] };
     marbles.forEach(m => groups[m.assignment].push(m));
@@ -792,62 +781,54 @@
       { key: 'magenta', label: 'Be Prepared' },
     ];
 
-    // Layout: 3 sections stacked vertically
-    const titleH = 70;
-    const sectionH = (vh - titleH) / 3;
-    const avatarR = Math.min(28, sectionH * 0.22);
-    const maxCols = Math.floor((vw - 60) / (avatarR * 2 + 20));
-
-    // Main title
-    ctx.fillStyle = '#fff';
-    ctx.font = `700 ${Math.min(36, vw * 0.04)}px "Inter", sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('The Randomizer', vw / 2, 36);
+    const pad = pw * 0.06;
+    const sectionH = vh / 3;
+    const avatarR = Math.min(32, Math.max(18, pw * 0.06));
+    const nameSize = Math.min(14, Math.max(10, pw * 0.028));
+    const titleSize = Math.min(22, Math.max(14, pw * 0.045));
 
     sections.forEach((sec, si) => {
       const c = COLORS[sec.key];
-      const sy = titleH + si * sectionH;
+      const sy = si * sectionH;
       const members = groups[sec.key];
 
       // Section background
-      ctx.fillStyle = c + '0a';
-      ctx.fillRect(0, sy, vw, sectionH - 2);
+      ctx.fillStyle = c + '08';
+      ctx.fillRect(px, sy, pw, sectionH - 1);
 
-      // Accent bar on the left
+      // Accent bar
       ctx.fillStyle = c;
-      ctx.fillRect(0, sy, 5, sectionH - 2);
+      ctx.fillRect(px, sy, 4, sectionH - 1);
 
       // Group title
       ctx.fillStyle = c;
-      ctx.font = `700 ${Math.min(24, vw * 0.028)}px "Inter", sans-serif`;
+      ctx.font = `700 ${titleSize}px "Inter", sans-serif`;
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      const labelY = sy + sectionH * 0.22;
-      ctx.fillText(sec.label, 30, labelY);
-
-      // Underline
-      const tw = ctx.measureText(sec.label).width;
-      ctx.strokeStyle = c + '44'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(30, labelY + 14); ctx.lineTo(30 + tw, labelY + 14); ctx.stroke();
+      ctx.fillText(sec.label, px + pad, sy + sectionH * 0.14);
 
       // Member count
-      ctx.fillStyle = '#666';
-      ctx.font = `400 ${Math.min(14, vw * 0.016)}px "Inter", sans-serif`;
-      ctx.fillText(`${members.length} students`, 30 + tw + 15, labelY);
+      const tw = ctx.measureText(sec.label).width;
+      ctx.fillStyle = '#555';
+      ctx.font = `400 ${nameSize * 0.85}px "Inter", sans-serif`;
+      ctx.fillText(`${members.length} students`, px + pad + tw + 12, sy + sectionH * 0.14);
 
-      // Avatars in a row
-      const avatarY = sy + sectionH * 0.6;
-      const startX = 35;
-      const gap = Math.min(avatarR * 2 + 18, (vw - 70) / Math.max(1, members.length));
+      // Avatars in 2 rows
+      const cols = Math.min(members.length, 4);
+      const rows = Math.ceil(members.length / cols);
+      const cellW = Math.min(avatarR * 2 + 30, (pw - pad * 2) / cols);
+      const rowH = avatarR * 2 + nameSize + 18;
+      const gridTop = sy + sectionH * 0.28;
 
       members.forEach((m, i) => {
-        const ax = startX + i * gap + avatarR;
-        const ay = avatarY;
+        const row = Math.floor(i / cols), col = i % cols;
+        const ax = px + pad + col * cellW + cellW / 2;
+        const ay = gridTop + row * rowH + avatarR;
 
-        // Glow behind avatar
+        // Avatar glow
         ctx.save();
-        ctx.shadowColor = c + '40'; ctx.shadowBlur = 12;
+        ctx.shadowColor = c + '30'; ctx.shadowBlur = 10;
 
-        // Avatar circle
+        // Photo
         if (m.texture) {
           ctx.save();
           ctx.beginPath(); ctx.arc(ax, ay, avatarR, 0, Math.PI * 2); ctx.clip();
@@ -855,26 +836,24 @@
           ctx.restore();
         }
 
-        // Border
+        // Border ring
         ctx.beginPath(); ctx.arc(ax, ay, avatarR, 0, Math.PI * 2);
         ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.stroke();
         ctx.restore();
 
-        // Name below avatar
+        // Name
         ctx.fillStyle = '#ccc';
-        ctx.font = `400 ${Math.min(12, vw * 0.014)}px "Inter", sans-serif`;
+        ctx.font = `400 ${nameSize}px "Inter", sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(m.name, ax, ay + avatarR + 16);
+        ctx.fillText(m.name, ax, ay + avatarR + nameSize + 2);
       });
 
-      // Divider line between sections
+      // Divider
       if (si < 2) {
-        ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(20, sy + sectionH - 1); ctx.lineTo(vw - 20, sy + sectionH - 1); ctx.stroke();
+        ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(px + pad, sy + sectionH - 1); ctx.lineTo(px + pw - pad, sy + sectionH - 1); ctx.stroke();
       }
     });
-
-    ctx.restore();
   }
 
   function drawLoading() {
@@ -898,20 +877,40 @@
       shakeT--;
     }
 
+    // Results panel fraction (0 = hidden, 0.5 = half screen)
+    const panelFrac = getResultsWidth();
+    const gameW = vw * (1 - panelFrac); // available width for game
+
     drawBg();
-    ctx.save(); applyCam();
+
+    // Game world (squeezed into left portion when results show)
+    ctx.save();
+    // Remap camera to use only the left portion
+    const bs = Math.min(gameW / CW, (vh - 50) / CH);
+    const s = bs * camera.zoom;
+    ctx.translate(gameW / 2, 50 + (vh - 50) / 2);
+    ctx.scale(s, s);
+    ctx.translate(-CW / 2, -camera.cy);
     drawBuckets();
     drawPins();
     drawMarbles();
     drawBowl();
     drawGate();
     ctx.restore();
-    drawTitle(); drawBtn();
+
+    // Title centered over game area
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 26px "Inter", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('The Randomizer', gameW / 2, 14);
+
+    drawBtn();
+
     if (state === 'complete') {
       const el = performance.now() - completeTime;
       if (el > 1500) { showNames = true; }
     }
-    drawOverlay(); drawConfetti();
+    drawOverlay(panelFrac); drawConfetti();
   }
 
   // ============================================================
