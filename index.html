@@ -39,13 +39,13 @@
   // Bowl (circular container)
   const BOWL_CX = 400, BOWL_CY = 115, BOWL_R = 100;
   const BOWL_BOT = BOWL_CY + BOWL_R; // 215
-  const GATE_GAP = 48;
+  const GATE_GAP = 56;
   const GATE_HALF_ANGLE = Math.asin(GATE_GAP / (2 * BOWL_R));
 
-  // Pins: staggered rectangular grid
+  // Pins: staggered grid, wide enough to cover bucket area
   const PIN_ROWS = 9;
-  const PIN_SP_H = 58, PIN_SP_V = 43;
-  const PIN_Y0 = 270;
+  const PIN_SP_H = 70, PIN_SP_V = 48;
+  const PIN_Y0 = 268;
 
   // Buckets (U-shaped)
   const BKT_TOP = 660, BKT_BOT = 910;
@@ -242,7 +242,7 @@
     for (let r = 0; r < PIN_ROWS; r++) {
       const y = PIN_Y0 + r * PIN_SP_V;
       const wide = r % 2 === 0;
-      const cnt = wide ? 7 : 6;
+      const cnt = wide ? 9 : 8;
       const totalW = (cnt - 1) * PIN_SP_H;
       const x0 = 400 - totalW / 2;
       for (let i = 0; i < cnt; i++) {
