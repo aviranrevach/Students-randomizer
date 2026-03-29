@@ -48,10 +48,10 @@
   const PIN_Y0 = 300;
 
   // Buckets (U-shaped)
-  const BKT_TOP = 660, BKT_BOT = 910;
+  const BKT_TOP = 715, BKT_BOT = 955;
   const WALL_L = 105, WALL_R = 695;
   const DIV1 = 302, DIV2 = 498;
-  const DIV_TOP = 645;
+  const DIV_TOP = 700;
   const BKT_CX = { green: 203, blue: 400, magenta: 597 };
   const BKT_W = 190, BKT_R = BKT_W / 2; // U-shape radius
 
@@ -197,11 +197,14 @@
     bodies.push(Bodies.rectangle(400, BOWL_CY - BOWL_R - 10, 810, 8, S));
 
     // Bowl rim containment (prevent marbles escaping over the sides)
-    const rimY = BOWL_CY - 4;
     const rimLeft = BOWL_CX - BOWL_R;
     const rimRight = BOWL_CX + BOWL_R;
-    bodies.push(Bodies.rectangle((WALL_L + rimLeft) / 2, rimY, rimLeft - WALL_L + 16, 8, S));
-    bodies.push(Bodies.rectangle((rimRight + WALL_R) / 2, rimY, WALL_R - rimRight + 16, 8, S));
+    // Horizontal walls closing gap between bowl rim and side walls
+    bodies.push(Bodies.rectangle((WALL_L + rimLeft) / 2, BOWL_CY, rimLeft - WALL_L + 20, 10, S));
+    bodies.push(Bodies.rectangle((rimRight + WALL_R) / 2, BOWL_CY, WALL_R - rimRight + 20, 10, S));
+    // Vertical fences at rim edges (block marbles from riding over the rim)
+    bodies.push(Bodies.rectangle(rimLeft, BOWL_CY - 25, 10, 50, S));
+    bodies.push(Bodies.rectangle(rimRight, BOWL_CY - 25, 10, 50, S));
 
     // Bowl: bottom semicircle (angles 0→PI through PI/2) with gate gap
     const bowlSegs = 16;
@@ -378,9 +381,8 @@
         m.slowFrames++;
         if (m.slowFrames > 45) {
           m.settled = true;
-          const idx = bucketCounts[m.assignment]++;
-          m.settledPos = getStackPos(m.assignment, idx);
-          Body.setPosition(m.body, m.settledPos);
+          // Keep marble where physics placed it — natural stacking
+          m.settledPos = { x: m.body.position.x, y: m.body.position.y };
           Body.setStatic(m.body, true);
           Body.setVelocity(m.body, { x: 0, y: 0 });
           playLand();
