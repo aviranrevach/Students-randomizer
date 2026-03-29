@@ -539,9 +539,9 @@
 
   function drawBuckets() {
     const bkts = [
-      { cx: BKT_CX.green, key: 'green', label: 'Group 1' },
-      { cx: BKT_CX.blue, key: 'blue', label: 'Group 2' },
-      { cx: BKT_CX.magenta, key: 'magenta', label: 'Group 3' },
+      { cx: BKT_CX.green, key: 'green', label: 'Improve' },
+      { cx: BKT_CX.blue, key: 'blue', label: 'Meet & Do' },
+      { cx: BKT_CX.magenta, key: 'magenta', label: 'Be Prepared' },
     ];
 
     bkts.forEach(b => {
@@ -781,9 +781,9 @@
     const colW = ow / 3;
 
     [
-      { key: 'green', cx: ox + colW * 0.5, label: 'Group 1' },
-      { key: 'blue', cx: ox + colW * 1.5, label: 'Group 2' },
-      { key: 'magenta', cx: ox + colW * 2.5, label: 'Group 3' },
+      { key: 'green', cx: ox + colW * 0.5, label: 'Improve' },
+      { key: 'blue', cx: ox + colW * 1.5, label: 'Meet & Do' },
+      { key: 'magenta', cx: ox + colW * 2.5, label: 'Be Prepared' },
     ].forEach(col => {
       ctx.fillStyle = COLORS[col.key]; ctx.font = '700 17px "Inter", sans-serif';
       ctx.textAlign = 'center'; ctx.fillText(col.label, col.cx, oy + 100);
