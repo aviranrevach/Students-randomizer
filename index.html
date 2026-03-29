@@ -40,10 +40,10 @@
   const COLOR_NAMES = ['green', 'blue', 'magenta'];
   const MARBLE_R = 20;
   const PIN_R = 6;
-  const CW = 800;   // canvas logical width
-  const CH = 1000;   // canvas logical height
+  const CW = 800;
+  const CH = 1000;
 
-  // Layout coordinates
+  // Layout
   const HOPPER_TOP_Y = 50;
   const HOPPER_BOT_Y = 230;
   const HOPPER_TL = { x: 160, y: HOPPER_TOP_Y };
@@ -52,12 +52,13 @@
   const HOPPER_BR = { x: 435, y: HOPPER_BOT_Y };
   const GATE_Y = 234;
 
-  const PIN_START_Y = 300;
-  const PIN_END_Y = 608;
-  const PIN_ROWS = 8;
+  // Pins: 6 rows (less center-bias than 8), 7/6 alternating
+  const PIN_START_Y = 320;
+  const PIN_END_Y = 595;
+  const PIN_ROWS = 6;
   const PIN_SPACING_Y = (PIN_END_Y - PIN_START_Y) / (PIN_ROWS - 1);
-  const PIN_LEFT_X = 140;
-  const PIN_RIGHT_X = 660;
+  const PIN_LEFT_X = 150;
+  const PIN_RIGHT_X = 650;
 
   const BUCKET_TOP = 660;
   const BUCKET_BOT = 890;
@@ -65,12 +66,13 @@
   const WALL_X_R = 700;
   const DIV1_X = 300;
   const DIV2_X = 500;
+  const DIV_TOP = 625;  // dividers extend above bucket area
   const BUCKET_CX = { green: 200, blue: 400, magenta: 600 };
 
   // ============================================================
   //  STATE
   // ============================================================
-  let state = 'loading'; // loading | idle | running | complete
+  let state = 'loading'; // loading | idle | starting | running | complete
   let gateOpen = false;
   let showNames = false;
   let overlayAlpha = 0;
@@ -86,6 +88,10 @@
   const studentImages = {};
   const marbleTextures = {};
   let collisionHandler, updateHandler;
+
+  // Camera
+  const camera = { centerY: 150, zoom: 2.2 };
+  const cameraTarget = { centerY: 150, zoom: 2.2 };
 
   // ============================================================
   //  CANVAS SETUP
@@ -129,6 +135,19 @@
     return f.replace(/^\d+\s*/, '').replace(/\.\w+$/, '');
   }
 
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function updateCamera() {
+    camera.centerY = lerp(camera.centerY, cameraTarget.centerY, 0.04);
+    camera.zoom = lerp(camera.zoom, cameraTarget.zoom, 0.04);
+  }
+
+  function applyCameraTransform() {
+    ctx.translate(CW / 2, CH / 2);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-CW / 2, -camera.centerY);
+  }
+
   function getCanvasCoords(e) {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -143,7 +162,7 @@
   }
 
   // ============================================================
-  //  SOUND ENGINE (Web Audio API - procedural)
+  //  SOUND ENGINE
   // ============================================================
   function initAudio() {
     if (audioCtx) return;
@@ -155,7 +174,6 @@
     const now = performance.now();
     if (now - lastPinSound < 35) return;
     lastPinSound = now;
-
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
@@ -173,7 +191,6 @@
     const now = performance.now();
     if (now - lastLandSound < 80) return;
     lastLandSound = now;
-
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
@@ -198,7 +215,6 @@
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
     osc.start(audioCtx.currentTime);
     osc.stop(audioCtx.currentTime + 0.16);
-
     const osc2 = audioCtx.createOscillator();
     const gain2 = audioCtx.createGain();
     osc2.connect(gain2);
@@ -235,27 +251,21 @@
     let loaded = 0;
     photos.forEach(photo => {
       const img = new Image();
-      img.onload = () => {
-        studentImages[photo] = img;
-        loaded++;
-        if (loaded === photos.length) cb();
-      };
-      img.onerror = () => {
-        loaded++;
-        if (loaded === photos.length) cb();
-      };
+      img.onload = () => { studentImages[photo] = img; loaded++; if (loaded === photos.length) cb(); };
+      img.onerror = () => { loaded++; if (loaded === photos.length) cb(); };
       img.src = `Class2026-1_photos/${photo}`;
     });
   }
 
   function createTexture(img) {
-    const size = MARBLE_R * 2;
+    const scale = 2; // hi-res for retina
+    const size = MARBLE_R * 2 * scale;
     const off = document.createElement('canvas');
     off.width = size;
     off.height = size;
     const oc = off.getContext('2d');
     oc.beginPath();
-    oc.arc(MARBLE_R, MARBLE_R, MARBLE_R - 2, 0, Math.PI * 2);
+    oc.arc(size / 2, size / 2, size / 2 - 2 * scale, 0, Math.PI * 2);
     oc.clip();
     const s = Math.min(img.width, img.height);
     const sx = (img.width - s) / 2;
@@ -266,9 +276,7 @@
 
   function createAllTextures() {
     photos.forEach(p => {
-      if (studentImages[p]) {
-        marbleTextures[p] = createTexture(studentImages[p]);
-      }
+      if (studentImages[p]) marbleTextures[p] = createTexture(studentImages[p]);
     });
   }
 
@@ -284,34 +292,30 @@
     // Ceiling
     bodies.push(Bodies.rectangle(400, -4, 810, 8, { isStatic: true }));
 
-    // Top rim (connects side walls across the top)
+    // Top rim
     bodies.push(Bodies.rectangle(400, HOPPER_TOP_Y - 4, 620, 8, { isStatic: true }));
 
     // Hopper left wall
     const hlDx = HOPPER_BL.x - HOPPER_TL.x;
     const hlDy = HOPPER_BL.y - HOPPER_TL.y;
-    const hlLen = Math.hypot(hlDx, hlDy);
-    const hlAngle = Math.atan2(hlDy, hlDx);
     bodies.push(Bodies.rectangle(
       (HOPPER_TL.x + HOPPER_BL.x) / 2, (HOPPER_TL.y + HOPPER_BL.y) / 2,
-      hlLen, 8, { ...wallOpts, angle: hlAngle }
+      Math.hypot(hlDx, hlDy), 8, { ...wallOpts, angle: Math.atan2(hlDy, hlDx) }
     ));
 
     // Hopper right wall
     const hrDx = HOPPER_BR.x - HOPPER_TR.x;
     const hrDy = HOPPER_BR.y - HOPPER_TR.y;
-    const hrLen = Math.hypot(hrDx, hrDy);
-    const hrAngle = Math.atan2(hrDy, hrDx);
     bodies.push(Bodies.rectangle(
       (HOPPER_TR.x + HOPPER_BR.x) / 2, (HOPPER_TR.y + HOPPER_BR.y) / 2,
-      hrLen, 8, { ...wallOpts, angle: hrAngle }
+      Math.hypot(hrDx, hrDy), 8, { ...wallOpts, angle: Math.atan2(hrDy, hrDx) }
     ));
 
     // Gate
     gateBody = Bodies.rectangle(400, GATE_Y, 78, 10, { isStatic: true, friction: 0.5 });
     bodies.push(gateBody);
 
-    // Side walls (from hopper bottom to floor)
+    // Side walls
     const wallH = BUCKET_BOT - HOPPER_BOT_Y;
     const wallCY = (HOPPER_BOT_Y + BUCKET_BOT) / 2;
     bodies.push(Bodies.rectangle(WALL_X_L - 4, wallCY, 8, wallH, { isStatic: true }));
@@ -320,25 +324,34 @@
     // Floor
     bodies.push(Bodies.rectangle(400, BUCKET_BOT + 4, WALL_X_R - WALL_X_L + 8, 8, { isStatic: true }));
 
-    // Bucket dividers
-    const divH = BUCKET_BOT - BUCKET_TOP;
-    const divCY = (BUCKET_TOP + BUCKET_BOT) / 2;
+    // Bucket dividers (extend above bucket area for channeling)
+    const divH = BUCKET_BOT - DIV_TOP;
+    const divCY = (DIV_TOP + BUCKET_BOT) / 2;
     bodies.push(Bodies.rectangle(DIV1_X, divCY, 6, divH, { isStatic: true, restitution: 0.2 }));
     bodies.push(Bodies.rectangle(DIV2_X, divCY, 6, divH, { isStatic: true, restitution: 0.2 }));
 
-    // Pins
+    // Deflector caps on top of dividers (V-shape guides)
+    const capLen = Math.hypot(30, 20);
+    const capAngleL = Math.atan2(20, -30); // up-left
+    const capAngleR = Math.atan2(20, 30);  // up-right
+    // Left divider caps
+    bodies.push(Bodies.rectangle(DIV1_X - 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleL, restitution: 0.5 }));
+    bodies.push(Bodies.rectangle(DIV1_X + 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleR, restitution: 0.5 }));
+    // Right divider caps
+    bodies.push(Bodies.rectangle(DIV2_X - 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleL, restitution: 0.5 }));
+    bodies.push(Bodies.rectangle(DIV2_X + 15, DIV_TOP - 10, capLen, 5, { isStatic: true, angle: capAngleR, restitution: 0.5 }));
+
+    // Pins: 6 rows, 7/6 alternating
     pinBodies = [];
     for (let row = 0; row < PIN_ROWS; row++) {
       const y = PIN_START_Y + row * PIN_SPACING_Y;
       const isWideRow = row % 2 === 0;
-      const count = isWideRow ? 8 : 7;
+      const count = isWideRow ? 7 : 6;
       const totalW = PIN_RIGHT_X - PIN_LEFT_X;
-      const spacing = totalW / (isWideRow ? 7 : 6);
+      const spacing = totalW / (count - 1);
       const startX = isWideRow ? PIN_LEFT_X : PIN_LEFT_X + spacing / 2;
-
       for (let i = 0; i < count; i++) {
-        const px = startX + i * spacing;
-        const pin = Bodies.circle(px, y, PIN_R, {
+        const pin = Bodies.circle(startX + i * spacing, y, PIN_R, {
           isStatic: true, restitution: 0.6, friction: 0.01
         });
         pin.isPin = true;
@@ -361,10 +374,8 @@
       });
       body.isMarble = true;
       body.assignment = null;
-
       marbles.push({
-        body,
-        photo,
+        body, photo,
         name: extractName(photo),
         assignment: null,
         settled: false,
@@ -378,18 +389,18 @@
   }
 
   // ============================================================
-  //  COLLISION & FORCE HANDLERS
+  //  COLLISION & FORCE HANDLERS (strong forces for equal split)
   // ============================================================
   function setupCollisions() {
     collisionHandler = (event) => {
       event.pairs.forEach(({ bodyA, bodyB }) => {
         const marble = bodyA.isMarble ? bodyA : (bodyB.isMarble ? bodyB : null);
         const pin = bodyA.isPin ? bodyA : (bodyB.isPin ? bodyB : null);
-
         if (marble && pin && gateOpen && marble.assignment) {
           const targetX = BUCKET_CX[marble.assignment];
           const dx = targetX - marble.position.x;
-          Body.applyForce(marble, marble.position, { x: Math.sign(dx) * 0.0005, y: 0 });
+          // Strong directional nudge on each pin hit
+          Body.applyForce(marble, marble.position, { x: Math.sign(dx) * 0.003, y: 0 });
           playPinSound();
           pin.lastHitTime = performance.now();
         }
@@ -405,17 +416,28 @@
         // Anti-jam: nudge marbles still in hopper
         if (body.position.y < HOPPER_BOT_Y + 30 && body.speed < 0.8) {
           Body.applyForce(body, body.position, {
-            x: (Math.random() - 0.5) * 0.0004,
+            x: (Math.random() - 0.5) * 0.0005,
             y: 0.0003
           });
         }
 
-        // Correction zone near buckets
-        if (m.assignment && body.position.y > BUCKET_TOP - 80) {
-          const targetX = BUCKET_CX[m.assignment];
-          const dx = targetX - body.position.x;
-          const strength = body.position.y > BUCKET_TOP ? 0.00005 : 0.00002;
-          Body.applyForce(body, body.position, { x: dx * strength, y: 0 });
+        if (!m.assignment) return;
+        const targetX = BUCKET_CX[m.assignment];
+        const dx = targetX - body.position.x;
+
+        // Continuous drift correction through pin field
+        if (body.position.y > HOPPER_BOT_Y + 50 && body.position.y < BUCKET_TOP) {
+          Body.applyForce(body, body.position, { x: dx * 0.00008, y: 0 });
+        }
+
+        // Strong correction near bucket area
+        if (body.position.y >= DIV_TOP - 40) {
+          Body.applyForce(body, body.position, { x: dx * 0.0004, y: 0 });
+        }
+
+        // Cap horizontal speed to keep it natural-looking
+        if (Math.abs(body.velocity.x) > 7) {
+          Body.setVelocity(body, { x: body.velocity.x * 0.85, y: body.velocity.y });
         }
       });
     };
@@ -430,37 +452,43 @@
   function onStart() {
     if (state !== 'idle') return;
     initAudio();
-    state = 'running';
-    gateOpen = true;
+    state = 'starting';
 
-    // Assign marbles to buckets (equal distribution)
+    // Zoom camera out
+    cameraTarget.centerY = 500;
+    cameraTarget.zoom = 1.0;
+
+    // Pre-assign marbles to buckets (equal split: 7/6/6)
     const shuffled = shuffle([...marbles]);
     shuffled.forEach((m, i) => {
       m.assignment = COLOR_NAMES[i % 3];
       m.body.assignment = m.assignment;
     });
 
-    // Remove gate
-    playGateSound();
-    Composite.remove(engine.world, gateBody);
+    // Delay gate opening until camera has zoomed out
+    setTimeout(() => {
+      if (state !== 'starting') return;
+      state = 'running';
+      gateOpen = true;
+      playGateSound();
+      Composite.remove(engine.world, gateBody);
 
-    // Give marbles a nudge to start flowing
-    marbles.forEach(m => {
-      Body.applyForce(m.body, m.body.position, {
-        x: (Math.random() - 0.5) * 0.002,
-        y: 0.001
+      // Nudge marbles to start flowing
+      marbles.forEach(m => {
+        Body.applyForce(m.body, m.body.position, {
+          x: (Math.random() - 0.5) * 0.002,
+          y: 0.001
+        });
       });
-    });
+    }, 1200);
   }
 
   function checkSettled() {
     if (state !== 'running') return;
-
     marbles.forEach(m => {
       if (m.settled) return;
-      const { y } = m.body.position;
+      const { x, y } = m.body.position;
       const speed = m.body.speed;
-
       if (y > BUCKET_TOP + 20 && speed < 0.5) {
         m.slowFrames++;
         if (m.slowFrames > 40) {
@@ -471,17 +499,13 @@
       } else {
         m.slowFrames = 0;
       }
-
       // Off-screen recovery
-      if (y > 1100 || m.body.position.x < -50 || m.body.position.x > 850) {
+      if (y > 1100 || x < -50 || x > 850) {
         Body.setPosition(m.body, { x: 400, y: 100 });
         Body.setVelocity(m.body, { x: 0, y: 0 });
       }
     });
-
-    if (marbles.every(m => m.settled)) {
-      onComplete();
-    }
+    if (marbles.every(m => m.settled)) onComplete();
   }
 
   function onComplete() {
@@ -493,7 +517,6 @@
 
   function onReset() {
     if (state !== 'complete') return;
-
     state = 'idle';
     showNames = false;
     overlayAlpha = 0;
@@ -501,14 +524,18 @@
     confetti.length = 0;
     lastTimestamp = null;
 
+    // Reset camera
+    camera.centerY = 150;
+    camera.zoom = 2.2;
+    cameraTarget.centerY = 150;
+    cameraTarget.zoom = 2.2;
+
     Events.off(engine, 'collisionStart', collisionHandler);
     Events.off(engine, 'beforeUpdate', updateHandler);
     Composite.clear(engine.world);
-
     marbles = [];
     pinBodies = [];
     gateBody = null;
-
     createWorld();
   }
 
@@ -519,7 +546,7 @@
     const cols = ['#00e676', '#00b0ff', '#e040fb', '#ffeb3b', '#ff9800', '#ffffff'];
     for (let i = 0; i < 150; i++) {
       confetti.push({
-        x: 400 + (Math.random() - 0.5) * 500,
+        x: CW * Math.random(),
         y: -20 - Math.random() * 300,
         w: 5 + Math.random() * 10,
         h: 3 + Math.random() * 6,
@@ -541,7 +568,6 @@
       c.rot += c.rotV;
       if (c.y > CH + 50) c.opacity -= 0.03;
       if (c.opacity <= 0) { confetti.splice(i, 1); continue; }
-
       ctx.save();
       ctx.translate(c.x, c.y);
       ctx.rotate(c.rot);
@@ -553,13 +579,163 @@
   }
 
   // ============================================================
-  //  DRAWING FUNCTIONS
+  //  DRAWING — WORLD SPACE (affected by camera)
+  // ============================================================
+  function drawHopper() {
+    ctx.save();
+    const grad = ctx.createLinearGradient(150, 0, 180, 0);
+    grad.addColorStop(0, '#666');
+    grad.addColorStop(0.5, '#aaa');
+    grad.addColorStop(1, '#666');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(HOPPER_TL.x, HOPPER_TL.y);
+    ctx.lineTo(HOPPER_BL.x, HOPPER_BL.y);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(HOPPER_TR.x, HOPPER_TR.y);
+    ctx.lineTo(HOPPER_BR.x, HOPPER_BR.y);
+    ctx.stroke();
+
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(HOPPER_TL.x - 5, HOPPER_TL.y);
+    ctx.lineTo(HOPPER_TR.x + 5, HOPPER_TR.y);
+    ctx.stroke();
+
+    // Rivets
+    ctx.fillStyle = '#888';
+    for (let t = 0.15; t <= 0.85; t += 0.35) {
+      const lx = HOPPER_TL.x + (HOPPER_BL.x - HOPPER_TL.x) * t;
+      const ly = HOPPER_TL.y + (HOPPER_BL.y - HOPPER_TL.y) * t;
+      ctx.beginPath(); ctx.arc(lx - 3, ly, 3, 0, Math.PI * 2); ctx.fill();
+      const rx = HOPPER_TR.x + (HOPPER_BR.x - HOPPER_TR.x) * t;
+      const ry = HOPPER_TR.y + (HOPPER_BR.y - HOPPER_TR.y) * t;
+      ctx.beginPath(); ctx.arc(rx + 3, ry, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGate() {
+    if (gateOpen) return;
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath();
+    ctx.roundRect(362, GATE_Y - 5, 76, 10, 3);
+    ctx.fill();
+    ctx.fillStyle = '#e74c3c';
+    ctx.beginPath();
+    ctx.arc(400, GATE_Y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawPins() {
+    const now = performance.now();
+    pinBodies.forEach(pin => {
+      const { x, y } = pin.position;
+      const isRecent = (now - pin.lastHitTime) < 120;
+      const grad = ctx.createRadialGradient(x - 1, y - 1, 0, x, y, PIN_R);
+      grad.addColorStop(0, isRecent ? '#fff' : '#bbb');
+      grad.addColorStop(1, isRecent ? '#999' : '#555');
+      ctx.beginPath();
+      ctx.arc(x, y, PIN_R, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      if (isRecent) {
+        ctx.beginPath();
+        ctx.arc(x, y, PIN_R + 3, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+  }
+
+  function drawWalls() {
+    ctx.strokeStyle = '#2a2a3a';
+    ctx.lineWidth = 4;
+    // Side walls
+    ctx.beginPath(); ctx.moveTo(WALL_X_L, HOPPER_BOT_Y); ctx.lineTo(WALL_X_L, BUCKET_BOT); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(WALL_X_R, HOPPER_BOT_Y); ctx.lineTo(WALL_X_R, BUCKET_BOT); ctx.stroke();
+    // Floor
+    ctx.beginPath(); ctx.moveTo(WALL_X_L, BUCKET_BOT); ctx.lineTo(WALL_X_R, BUCKET_BOT); ctx.stroke();
+  }
+
+  function drawBuckets() {
+    const buckets = [
+      { x: WALL_X_L, w: DIV1_X - WALL_X_L, color: 'green', label: 'Group 1' },
+      { x: DIV1_X, w: DIV2_X - DIV1_X, color: 'blue', label: 'Group 2' },
+      { x: DIV2_X, w: WALL_X_R - DIV2_X, color: 'magenta', label: 'Group 3' },
+    ];
+    buckets.forEach(b => {
+      const c = COLORS[b.color];
+      ctx.fillStyle = c + '12';
+      ctx.fillRect(b.x + 3, BUCKET_TOP + 2, b.w - 6, BUCKET_BOT - BUCKET_TOP - 4);
+      ctx.strokeStyle = c + '55';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(b.x + 3, BUCKET_TOP);
+      ctx.lineTo(b.x + b.w - 3, BUCKET_TOP);
+      ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.font = 'bold 13px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.label, b.x + b.w / 2, BUCKET_TOP - 8);
+    });
+
+    // Dividers with deflector caps
+    ctx.strokeStyle = '#3a3a4a';
+    ctx.lineWidth = 5;
+    [DIV1_X, DIV2_X].forEach(dx => {
+      ctx.beginPath(); ctx.moveTo(dx, DIV_TOP); ctx.lineTo(dx, BUCKET_BOT); ctx.stroke();
+      // V-cap
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(dx - 25, DIV_TOP - 18);
+      ctx.lineTo(dx, DIV_TOP);
+      ctx.lineTo(dx + 25, DIV_TOP - 18);
+      ctx.stroke();
+      ctx.lineWidth = 5;
+    });
+  }
+
+  function drawMarbles() {
+    marbles.forEach(m => {
+      const { x, y } = m.body.position;
+      ctx.save();
+      ctx.translate(x, y);
+      if (m.texture) {
+        ctx.drawImage(m.texture, -MARBLE_R, -MARBLE_R, MARBLE_R * 2, MARBLE_R * 2);
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, MARBLE_R - 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#555';
+        ctx.fill();
+      }
+      // Border
+      ctx.beginPath();
+      ctx.arc(0, 0, MARBLE_R - 1, 0, Math.PI * 2);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = m.assignment ? COLORS[m.assignment] : '#999';
+      ctx.stroke();
+      // Glass highlight
+      ctx.beginPath();
+      ctx.arc(-MARBLE_R * 0.28, -MARBLE_R * 0.28, MARBLE_R * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.13)';
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  // ============================================================
+  //  DRAWING — SCREEN SPACE (not affected by camera)
   // ============================================================
   function drawBackground() {
     ctx.fillStyle = '#0f0f1a';
     ctx.fillRect(0, 0, CW, CH);
-
-    // Subtle radial glow
     const grad = ctx.createRadialGradient(400, 400, 50, 400, 400, 500);
     grad.addColorStop(0, 'rgba(255,255,255,0.015)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -575,218 +751,25 @@
     ctx.fillText('The Randomizer', 400, 12);
   }
 
-  function drawHopper() {
-    ctx.save();
-    // Metallic gradient
-    const grad = ctx.createLinearGradient(150, 0, 180, 0);
-    grad.addColorStop(0, '#666');
-    grad.addColorStop(0.5, '#aaa');
-    grad.addColorStop(1, '#666');
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 10;
-    ctx.lineCap = 'round';
-
-    // Left wall
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TL.x, HOPPER_TL.y);
-    ctx.lineTo(HOPPER_BL.x, HOPPER_BL.y);
-    ctx.stroke();
-
-    // Right wall
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TR.x, HOPPER_TR.y);
-    ctx.lineTo(HOPPER_BR.x, HOPPER_BR.y);
-    ctx.stroke();
-
-    // Top rim
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.moveTo(HOPPER_TL.x - 5, HOPPER_TL.y);
-    ctx.lineTo(HOPPER_TR.x + 5, HOPPER_TR.y);
-    ctx.stroke();
-
-    // Decorative rivets
-    ctx.fillStyle = '#888';
-    for (let t = 0.1; t <= 0.9; t += 0.4) {
-      const lx = HOPPER_TL.x + (HOPPER_BL.x - HOPPER_TL.x) * t;
-      const ly = HOPPER_TL.y + (HOPPER_BL.y - HOPPER_TL.y) * t;
-      ctx.beginPath();
-      ctx.arc(lx - 3, ly, 3, 0, Math.PI * 2);
-      ctx.fill();
-      const rx = HOPPER_TR.x + (HOPPER_BR.x - HOPPER_TR.x) * t;
-      const ry = HOPPER_TR.y + (HOPPER_BR.y - HOPPER_TR.y) * t;
-      ctx.beginPath();
-      ctx.arc(rx + 3, ry, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  function drawGate() {
-    if (gateOpen) return;
-    ctx.fillStyle = '#c0392b';
-    ctx.beginPath();
-    ctx.roundRect(362, GATE_Y - 5, 76, 10, 3);
-    ctx.fill();
-    // Handle
-    ctx.fillStyle = '#e74c3c';
-    ctx.beginPath();
-    ctx.arc(400, GATE_Y, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawPins() {
-    const now = performance.now();
-    pinBodies.forEach(pin => {
-      const { x, y } = pin.position;
-      const isRecent = (now - pin.lastHitTime) < 120;
-
-      const grad = ctx.createRadialGradient(x - 1, y - 1, 0, x, y, PIN_R);
-      grad.addColorStop(0, isRecent ? '#fff' : '#bbb');
-      grad.addColorStop(1, isRecent ? '#999' : '#555');
-
-      ctx.beginPath();
-      ctx.arc(x, y, PIN_R, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      if (isRecent) {
-        ctx.beginPath();
-        ctx.arc(x, y, PIN_R + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    });
-  }
-
-  function drawWalls() {
-    ctx.strokeStyle = '#2a2a3a';
-    ctx.lineWidth = 4;
-
-    // Left side wall
-    ctx.beginPath();
-    ctx.moveTo(WALL_X_L, HOPPER_BOT_Y);
-    ctx.lineTo(WALL_X_L, BUCKET_BOT);
-    ctx.stroke();
-
-    // Right side wall
-    ctx.beginPath();
-    ctx.moveTo(WALL_X_R, HOPPER_BOT_Y);
-    ctx.lineTo(WALL_X_R, BUCKET_BOT);
-    ctx.stroke();
-
-    // Floor
-    ctx.beginPath();
-    ctx.moveTo(WALL_X_L, BUCKET_BOT);
-    ctx.lineTo(WALL_X_R, BUCKET_BOT);
-    ctx.stroke();
-  }
-
-  function drawBuckets() {
-    const buckets = [
-      { x: WALL_X_L, w: DIV1_X - WALL_X_L, color: 'green', label: 'Group 1' },
-      { x: DIV1_X, w: DIV2_X - DIV1_X, color: 'blue', label: 'Group 2' },
-      { x: DIV2_X, w: WALL_X_R - DIV2_X, color: 'magenta', label: 'Group 3' },
-    ];
-
-    buckets.forEach(b => {
-      const c = COLORS[b.color];
-
-      // Background fill
-      ctx.fillStyle = c + '12';
-      ctx.fillRect(b.x + 3, BUCKET_TOP + 2, b.w - 6, BUCKET_BOT - BUCKET_TOP - 4);
-
-      // Top edge glow
-      ctx.strokeStyle = c + '55';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(b.x + 3, BUCKET_TOP);
-      ctx.lineTo(b.x + b.w - 3, BUCKET_TOP);
-      ctx.stroke();
-
-      // Label
-      ctx.fillStyle = c;
-      ctx.font = 'bold 13px "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(b.label, b.x + b.w / 2, BUCKET_TOP - 8);
-    });
-
-    // Dividers
-    ctx.strokeStyle = '#3a3a4a';
-    ctx.lineWidth = 5;
-    [DIV1_X, DIV2_X].forEach(dx => {
-      ctx.beginPath();
-      ctx.moveTo(dx, BUCKET_TOP);
-      ctx.lineTo(dx, BUCKET_BOT);
-      ctx.stroke();
-    });
-  }
-
-  function drawMarbleBody(m) {
-    const { x, y } = m.body.position;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Photo texture (NOT rotated - keeps faces readable)
-    if (m.texture) {
-      ctx.drawImage(m.texture, -MARBLE_R, -MARBLE_R);
-    } else {
-      ctx.beginPath();
-      ctx.arc(0, 0, MARBLE_R - 2, 0, Math.PI * 2);
-      ctx.fillStyle = '#555';
-      ctx.fill();
-    }
-
-    // Border ring
-    ctx.beginPath();
-    ctx.arc(0, 0, MARBLE_R - 1, 0, Math.PI * 2);
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = m.assignment ? COLORS[m.assignment] : '#999';
-    ctx.stroke();
-
-    // Glass highlight
-    ctx.beginPath();
-    ctx.arc(-MARBLE_R * 0.28, -MARBLE_R * 0.28, MARBLE_R * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.13)';
-    ctx.fill();
-
-    ctx.restore();
-  }
-
-  function drawMarbles() {
-    marbles.forEach(m => drawMarbleBody(m));
-  }
-
   function drawButton() {
-    let text;
     const btn = { x: 400, y: 945, w: 180, h: 50 };
-
-    if (state === 'idle') {
-      text = '\u25B6  START';
-    } else if (state === 'complete') {
-      text = '\u21BA  RESET';
-    } else {
-      return;
-    }
+    let text;
+    if (state === 'idle') text = '\u25B6  START';
+    else if (state === 'complete') text = '\u21BA  RESET';
+    else return;
 
     ctx.save();
     ctx.shadowColor = 'rgba(224, 64, 251, 0.4)';
     ctx.shadowBlur = 25;
     ctx.shadowOffsetY = 4;
-
     const grad = ctx.createLinearGradient(btn.x - btn.w / 2, 0, btn.x + btn.w / 2, 0);
     grad.addColorStop(0, COLORS.green);
     grad.addColorStop(0.5, COLORS.blue);
     grad.addColorStop(1, COLORS.magenta);
-
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.roundRect(btn.x - btn.w / 2, btn.y - btn.h / 2, btn.w, btn.h, btn.h / 2);
     ctx.fill();
-
     ctx.restore();
 
     ctx.fillStyle = '#fff';
@@ -798,91 +781,54 @@
 
   function drawNamesOverlay() {
     if (!showNames || overlayAlpha <= 0) return;
-
     ctx.save();
     ctx.globalAlpha = overlayAlpha;
 
-    // Backdrop
     ctx.fillStyle = 'rgba(15, 15, 26, 0.94)';
-    ctx.beginPath();
-    ctx.roundRect(75, 180, 650, 520, 16);
-    ctx.fill();
-
-    // Border
+    ctx.beginPath(); ctx.roundRect(75, 180, 650, 520, 16); ctx.fill();
     ctx.strokeStyle = '#444';
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(75, 180, 650, 520, 16);
-    ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(75, 180, 650, 520, 16); ctx.stroke();
 
-    // Title
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 24px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Results', 400, 225);
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(120, 245); ctx.lineTo(680, 245); ctx.stroke();
 
-    // Divider line
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(120, 245);
-    ctx.lineTo(680, 245);
-    ctx.stroke();
-
-    // Group marbles by assignment
     const groups = { green: [], blue: [], magenta: [] };
     marbles.forEach(m => groups[m.assignment].push(m));
 
-    const cols = [
+    [
       { key: 'green', cx: 195, label: 'Group 1' },
       { key: 'blue', cx: 400, label: 'Group 2' },
       { key: 'magenta', cx: 605, label: 'Group 3' },
-    ];
-
-    cols.forEach(col => {
-      // Header
+    ].forEach(col => {
       ctx.fillStyle = COLORS[col.key];
       ctx.font = 'bold 15px "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(col.label, col.cx, 278);
-
-      // Underline
       ctx.strokeStyle = COLORS[col.key] + '44';
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(col.cx - 55, 288);
-      ctx.lineTo(col.cx + 55, 288);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(col.cx - 55, 288); ctx.lineTo(col.cx + 55, 288); ctx.stroke();
 
-      // Members
       groups[col.key].forEach((m, i) => {
         const rowY = 315 + i * 34;
-
-        // Mini photo
         if (m.texture) {
           ctx.save();
-          ctx.beginPath();
-          ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2);
-          ctx.clip();
+          ctx.beginPath(); ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2); ctx.clip();
           ctx.drawImage(m.texture, col.cx - 64, rowY - 12, 24, 24);
           ctx.restore();
-
-          // Mini border
-          ctx.beginPath();
-          ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2);
-          ctx.strokeStyle = COLORS[col.key] + '77';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
+          ctx.beginPath(); ctx.arc(col.cx - 52, rowY, 12, 0, Math.PI * 2);
+          ctx.strokeStyle = COLORS[col.key] + '77'; ctx.lineWidth = 1.5; ctx.stroke();
         }
-
-        // Name
         ctx.fillStyle = '#ddd';
         ctx.font = '13px "Segoe UI", sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(m.name, col.cx - 34, rowY + 5);
       });
     });
-
     ctx.restore();
   }
 
@@ -902,17 +848,24 @@
   function render() {
     if (state === 'loading') { drawLoadingScreen(); return; }
 
+    // Screen-space background
     drawBackground();
+
+    // World-space elements (affected by camera zoom/pan)
+    ctx.save();
+    applyCameraTransform();
     drawBuckets();
     drawWalls();
     drawPins();
     drawMarbles();
     drawHopper();
     drawGate();
+    ctx.restore();
+
+    // Screen-space UI
     drawTitle();
     drawButton();
 
-    // Handle completion overlay timing
     if (state === 'complete') {
       const elapsed = performance.now() - completeTime;
       if (elapsed > 2000) {
@@ -920,7 +873,6 @@
         overlayAlpha = Math.min(1, (elapsed - 2000) / 600);
       }
     }
-
     drawNamesOverlay();
     updateAndDrawConfetti();
   }
@@ -935,12 +887,9 @@
         Engine.update(engine, delta);
       }
       lastTimestamp = ts;
-
-      if (state === 'running') {
-        checkSettled();
-      }
+      updateCamera();
+      if (state === 'running') checkSettled();
     }
-
     render();
     requestAnimationFrame(gameLoop);
   }
@@ -951,37 +900,34 @@
   const BTN_HIT = { x: 400, y: 945, w: 180, h: 50 };
 
   function handleClick(x, y) {
-    if (state === 'idle' && isInsideBtn(x, y, BTN_HIT)) {
-      onStart();
-    } else if (state === 'complete' && isInsideBtn(x, y, BTN_HIT)) {
-      onReset();
-    }
+    if (state === 'idle' && isInsideBtn(x, y, BTN_HIT)) onStart();
+    else if (state === 'complete' && isInsideBtn(x, y, BTN_HIT)) onReset();
   }
 
   canvas.addEventListener('click', (e) => {
-    const coords = getCanvasCoords(e);
-    handleClick(coords.x, coords.y);
+    const c = getCanvasCoords(e);
+    handleClick(c.x, c.y);
   });
 
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const touch = e.touches[0];
     const rect = canvas.getBoundingClientRect();
-    const x = (touch.clientX - rect.left) * (CW / rect.width);
-    const y = (touch.clientY - rect.top) * (CH / rect.height);
-    handleClick(x, y);
+    handleClick(
+      (touch.clientX - rect.left) * (CW / rect.width),
+      (touch.clientY - rect.top) * (CH / rect.height)
+    );
   }, { passive: false });
 
   canvas.addEventListener('mousemove', (e) => {
     const { x, y } = getCanvasCoords(e);
-    const over = (state === 'idle' || state === 'complete') && isInsideBtn(x, y, BTN_HIT);
-    canvas.style.cursor = over ? 'pointer' : 'default';
+    canvas.style.cursor = (state === 'idle' || state === 'complete') && isInsideBtn(x, y, BTN_HIT)
+      ? 'pointer' : 'default';
   });
 
   // ============================================================
-  //  INITIALIZATION
+  //  INIT
   // ============================================================
-  // Show loading screen immediately
   requestAnimationFrame(() => render());
 
   preloadImages(() => {
