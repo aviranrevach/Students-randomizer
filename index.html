@@ -631,47 +631,101 @@
     const bx = vw / 2, by = vh - 42;
 
     if (state === 'idle') {
-      // Circus marquee START button
-      const bw = 210, bh = 56, r = bh / 2;
+      // Theater marquee START button with chasing bulb lights
+      const bw = 220, bh = 58, r = 14;
       const t = performance.now();
+      const pad = 10; // space for lights between outer and inner rect
 
-      // Outer glow
+      // Warm ambient glow behind entire button
       ctx.save();
-      ctx.shadowColor = 'rgba(255,80,50,0.5)'; ctx.shadowBlur = 30;
-
-      // Red border frame
-      ctx.fillStyle = '#c0392b';
-      ctx.beginPath(); ctx.roundRect(bx - bw / 2 - 6, by - bh / 2 - 6, bw + 12, bh + 12, r + 6); ctx.fill();
-
-      // Marquee lights around the border
-      const perim = 2 * (bw + bh) + 2 * Math.PI * 4;
-      const numLights = 24;
-      for (let i = 0; i < numLights; i++) {
-        const frac = i / numLights;
-        const phase = ((t / 120) + frac) % 1;
-        const bright = phase < 0.5 ? 1 : 0.3;
-        // Position lights along rounded rect perimeter
-        let lx, ly;
-        const p = frac * (2 * bw + 2 * bh);
-        if (p < bw) { lx = bx - bw / 2 + p; ly = by - bh / 2 - 5; }
-        else if (p < bw + bh) { lx = bx + bw / 2 + 5; ly = by - bh / 2 + (p - bw); }
-        else if (p < 2 * bw + bh) { lx = bx + bw / 2 - (p - bw - bh); ly = by + bh / 2 + 5; }
-        else { lx = bx - bw / 2 - 5; ly = by + bh / 2 - (p - 2 * bw - bh); }
-
-        ctx.beginPath(); ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,${180 + 75 * bright|0},${50 * bright|0},${0.4 + 0.6 * bright})`;
-        ctx.fill();
-      }
+      ctx.shadowColor = 'rgba(255,160,40,0.4)'; ctx.shadowBlur = 35;
+      ctx.fillStyle = 'rgba(255,140,30,0.08)';
+      ctx.beginPath(); ctx.roundRect(bx - bw/2 - pad - 4, by - bh/2 - pad - 4, bw + pad*2 + 8, bh + pad*2 + 8, r + pad + 4); ctx.fill();
       ctx.restore();
 
-      // Inner dark fill
-      ctx.fillStyle = '#1a0a08';
-      ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, r); ctx.fill();
+      // Outer frame (dark red)
+      ctx.fillStyle = '#8b1a1a';
+      ctx.beginPath(); ctx.roundRect(bx - bw/2 - pad, by - bh/2 - pad, bw + pad*2, bh + pad*2, r + pad); ctx.fill();
 
-      // Text
-      ctx.fillStyle = '#ffd700'; ctx.font = '700 22px "Inter", sans-serif';
+      // Light channel groove (slightly recessed track for bulbs)
+      ctx.strokeStyle = '#5a1010';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(bx - bw/2 - pad + 2, by - bh/2 - pad + 2, bw + pad*2 - 4, bh + pad*2 - 4, r + pad - 2); ctx.stroke();
+
+      // Chase lights — 3 groups cycling for classic marquee effect
+      const numLights = 32;
+      const speed = t / 200;
+      for (let i = 0; i < numLights; i++) {
+        const frac = i / numLights;
+        // 3-phase chase: each bulb in one of 3 groups
+        const group = i % 3;
+        const wave = (speed + group / 3) % 1;
+        const bright = 0.15 + 0.85 * Math.max(0, Math.cos(wave * Math.PI * 2)) ** 2;
+
+        // Position along rounded rect perimeter
+        const totalPerim = 2 * (bw + bh - 4) + 2 * Math.PI * (r + 3);
+        const d = frac * totalPerim;
+        const hw = bw / 2 - r, hh = bh / 2 - r;
+        const straight = 2 * hw + 2 * hh; // total straight segments
+        const cornerLen = 0.5 * Math.PI * (r + 3); // each corner arc
+        let lx, ly;
+
+        // Top edge (left to right)
+        if (d < 2 * hw) {
+          lx = bx - hw + d; ly = by - bh / 2 - 3;
+        }
+        // Right edge
+        else if (d < 2 * hw + 2 * hh) {
+          const dd = d - 2 * hw;
+          lx = bx + bw / 2 + 3; ly = by - hh + dd;
+        }
+        // Bottom edge (right to left)
+        else if (d < 4 * hw + 2 * hh) {
+          const dd = d - 2 * hw - 2 * hh;
+          lx = bx + hw - dd; ly = by + bh / 2 + 3;
+        }
+        // Left edge
+        else {
+          const dd = d - 4 * hw - 2 * hh;
+          lx = bx - bw / 2 - 3; ly = by + hh - dd;
+        }
+
+        // Bulb glow halo
+        if (bright > 0.5) {
+          ctx.save();
+          const glow = ctx.createRadialGradient(lx, ly, 0, lx, ly, 8);
+          glow.addColorStop(0, `rgba(255,200,60,${bright * 0.35})`);
+          glow.addColorStop(1, 'rgba(255,150,30,0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(lx, ly, 8, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        }
+
+        // Bulb body
+        const g = ctx.createRadialGradient(lx - 0.5, ly - 0.5, 0, lx, ly, 3.5);
+        const r255 = 255, gv = 150 + 105 * bright | 0, bv = 20 + 50 * bright | 0;
+        g.addColorStop(0, `rgb(255,${Math.min(255, gv + 40)},${bv + 30})`);
+        g.addColorStop(0.6, `rgb(${r255},${gv},${bv})`);
+        g.addColorStop(1, `rgb(${120 + 80 * bright|0},${60 + 40 * bright|0},${10})`);
+        ctx.beginPath(); ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = g; ctx.fill();
+      }
+
+      // Inner dark panel
+      ctx.fillStyle = '#1c0808';
+      ctx.beginPath(); ctx.roundRect(bx - bw/2, by - bh/2, bw, bh, r); ctx.fill();
+      // Subtle inner border
+      ctx.strokeStyle = '#3a1515';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(bx - bw/2 + 1, by - bh/2 + 1, bw - 2, bh - 2, r - 1); ctx.stroke();
+
+      // Gold text with subtle glow
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,215,0,0.4)'; ctx.shadowBlur = 10;
+      ctx.fillStyle = '#ffd700'; ctx.font = '700 24px "Inter", sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('\u25B6  START', bx, by);
+      ctx.restore();
 
     } else if (state === 'starting' || state === 'running') {
       // Small nudge pill
