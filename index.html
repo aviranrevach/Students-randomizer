@@ -39,13 +39,13 @@
   // Bowl (circular container)
   const BOWL_CX = 400, BOWL_CY = 108, BOWL_R = 130;
   const BOWL_BOT = BOWL_CY + BOWL_R; // 215
-  const GATE_GAP = 56;
+  const GATE_GAP = 65;
   const GATE_HALF_ANGLE = Math.asin(GATE_GAP / (2 * BOWL_R));
 
   // Pins: staggered grid, wide enough to cover bucket area
-  const PIN_ROWS = 9;
-  const PIN_SP_H = 70, PIN_SP_V = 48;
-  const PIN_Y0 = 268;
+  const PIN_ROWS = 8;
+  const PIN_SP_H = 70, PIN_SP_V = 50;
+  const PIN_Y0 = 300;
 
   // Buckets (U-shaped)
   const BKT_TOP = 660, BKT_BOT = 910;
@@ -297,9 +297,10 @@
       marbles.forEach(m => {
         if (m.settled) return;
         const b = m.body;
-        // Anti-jam in bowl
-        if (b.position.y < BOWL_BOT + 30 && b.speed < 1.2) {
-          Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.002, y: 0.001 });
+        // Anti-jam in bowl (strong push toward gate)
+        if (b.position.y < BOWL_BOT + 30 && b.speed < 1.5) {
+          const toCenter = BOWL_CX - b.position.x;
+          Body.applyForce(b, b.position, { x: toCenter * 0.00005 + (Math.random() - 0.5) * 0.003, y: 0.002 });
         }
         // Anti-jam on pins (aggressive — no marble should stop)
         if (b.position.y > PIN_Y0 - 10 && b.position.y < BKT_TOP && b.speed < 0.8) {
