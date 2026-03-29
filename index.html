@@ -37,7 +37,7 @@
   const CW = 800, CH = 1000;
 
   // Bowl (circular container)
-  const BOWL_CX = 400, BOWL_CY = 115, BOWL_R = 100;
+  const BOWL_CX = 400, BOWL_CY = 108, BOWL_R = 130;
   const BOWL_BOT = BOWL_CY + BOWL_R; // 215
   const GATE_GAP = 56;
   const GATE_HALF_ANGLE = Math.asin(GATE_GAP / (2 * BOWL_R));
@@ -301,9 +301,9 @@
         if (b.position.y < BOWL_BOT + 30 && b.speed < 1.2) {
           Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.002, y: 0.001 });
         }
-        // Anti-jam on pins
-        if (b.position.y > PIN_Y0 - 10 && b.position.y < BKT_TOP && b.speed < 0.4) {
-          Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.004, y: 0.003 });
+        // Anti-jam on pins (aggressive — no marble should stop)
+        if (b.position.y > PIN_Y0 - 10 && b.position.y < BKT_TOP && b.speed < 0.8) {
+          Body.applyForce(b, b.position, { x: (Math.random() - 0.5) * 0.006, y: 0.005 });
         }
         if (!m.assignment) return;
         const dx = BKT_CX[m.assignment] - b.position.x;
@@ -420,11 +420,11 @@
   function drawBowl() {
     ctx.save();
     // Shadow
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-    ctx.lineWidth = 16;
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 10;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(BOWL_CX, BOWL_CY + 4, BOWL_R + 2, Math.PI, 0, true);
+    ctx.arc(BOWL_CX, BOWL_CY + 3, BOWL_R + 1, Math.PI, 0, true);
     ctx.stroke();
 
     // Metallic gradient
@@ -432,7 +432,7 @@
     g.addColorStop(0, '#555'); g.addColorStop(0.25, '#999');
     g.addColorStop(0.5, '#bbb'); g.addColorStop(0.75, '#999'); g.addColorStop(1, '#555');
     ctx.strokeStyle = g;
-    ctx.lineWidth = 12;
+    ctx.lineWidth = 7;
 
     if (gateAnim < 0.05) {
       ctx.beginPath();
