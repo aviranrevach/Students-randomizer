@@ -39,21 +39,20 @@
   // Hopper (taller, no top rim)
   const HOP = {
     tl: { x: 130, y: 15 }, tr: { x: 670, y: 15 },
-    bl: { x: 362, y: 275 }, br: { x: 438, y: 275 }
+    bl: { x: 355, y: 275 }, br: { x: 445, y: 275 }
   };
   const GATE_Y = 279;
 
-  // Pins: 6 rows, 6/5 pattern (wide spacing, no jamming)
-  const PIN_ROWS = 6;
-  const PIN_Y0 = 345, PIN_Y1 = 610;
-  const PIN_DY = (PIN_Y1 - PIN_Y0) / (PIN_ROWS - 1);
-  const PIN_X0 = 155, PIN_X1 = 645;
+  // Pins: triangular Galton board (1 center pin at top, expanding)
+  const PIN_ROWS = 8;
+  const PIN_Y0 = 312;
+  const PIN_SP_H = 55, PIN_SP_V = 45;
 
   // Buckets
   const BKT_TOP = 665, BKT_BOT = 910;
   const WALL_L = 100, WALL_R = 700;
   const DIV1 = 300, DIV2 = 500;
-  const DIV_TOP = 632;
+  const DIV_TOP = 648;
   const BKT_CX = { green: 200, blue: 400, magenta: 600 };
 
   // ============================================================
@@ -212,8 +211,8 @@
     bodies.push(mkWall(HOP.tr, HOP.br));
 
     // Gate (two halves)
-    gateBodyL = Bodies.rectangle(381, GATE_Y, 38, 10, { ...S, friction: 0.3 });
-    gateBodyR = Bodies.rectangle(419, GATE_Y, 38, 10, { ...S, friction: 0.3 });
+    gateBodyL = Bodies.rectangle(377, GATE_Y, 45, 10, { ...S, friction: 0.3 });
+    gateBodyR = Bodies.rectangle(423, GATE_Y, 45, 10, { ...S, friction: 0.3 });
     bodies.push(gateBodyL, gateBodyR);
 
     // Side walls (full height, invisible)
@@ -235,15 +234,14 @@
       bodies.push(Bodies.rectangle(dx+14, DIV_TOP-9, cL, 5, { ...S, angle: aR, restitution: 0.5 }));
     });
 
-    // Pins: 6 rows, 6/5 alternating (wide spacing)
+    // Pins: triangular Galton board — 1 center pin at top, each row +1
     pinBodies = [];
     for (let r = 0; r < PIN_ROWS; r++) {
-      const y = PIN_Y0 + r * PIN_DY;
-      const wide = r % 2 === 0, cnt = wide ? 6 : 5;
-      const sp = (PIN_X1 - PIN_X0) / (cnt - 1);
-      const x0 = wide ? PIN_X0 : PIN_X0 + sp / 2;
+      const y = PIN_Y0 + r * PIN_SP_V;
+      const cnt = r + 1;
       for (let i = 0; i < cnt; i++) {
-        const p = Bodies.circle(x0 + i * sp, y, PIN_R, { ...S, restitution: 0.7, friction: 0.005 });
+        const x = 400 + (i - (cnt - 1) / 2) * PIN_SP_H;
+        const p = Bodies.circle(x, y, PIN_R, { ...S, restitution: 0.7, friction: 0.005 });
         p.isPin = true; p.hitT = 0;
         pinBodies.push(p); bodies.push(p);
       }
@@ -292,13 +290,13 @@
         if (m.settled) return;
         const b = m.body;
 
-        // Anti-jam in hopper
-        if (b.position.y < HOP.bl.y + 40 && b.speed < 1) {
-          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.001, y: 0.0005 });
+        // Anti-jam in hopper (stronger)
+        if (b.position.y < HOP.bl.y + 40 && b.speed < 1.2) {
+          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.002, y: 0.001 });
         }
         // Anti-jam on pins
-        if (b.position.y > PIN_Y0 - 20 && b.position.y < BKT_TOP && b.speed < 0.3) {
-          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.003, y: 0.002 });
+        if (b.position.y > PIN_Y0 - 20 && b.position.y < BKT_TOP && b.speed < 0.4) {
+          Body.applyForce(b, b.position, { x: (Math.random()-0.5)*0.004, y: 0.003 });
         }
 
         if (!m.assignment) return;
@@ -345,8 +343,8 @@
     if (!gateOpening || gateAnim >= 1) return;
     gateAnim = Math.min(1, gateAnim + 0.02);
     const off = gateAnim * 120, drop = gateAnim * 60;
-    if (gateBodyL) Body.setPosition(gateBodyL, { x: 381 - off, y: GATE_Y + drop });
-    if (gateBodyR) Body.setPosition(gateBodyR, { x: 419 + off, y: GATE_Y + drop });
+    if (gateBodyL) Body.setPosition(gateBodyL, { x: 377 - off, y: GATE_Y + drop });
+    if (gateBodyR) Body.setPosition(gateBodyR, { x: 423 + off, y: GATE_Y + drop });
     if (gateAnim >= 1) {
       if (gateBodyL) Composite.remove(engine.world, gateBodyL);
       if (gateBodyR) Composite.remove(engine.world, gateBodyR);
@@ -456,8 +454,8 @@
     const off = gateAnim * 120, drop = gateAnim * 60, alpha = 1 - gateAnim * 0.8;
     ctx.save(); ctx.globalAlpha = alpha;
     ctx.fillStyle = '#6b7280';
-    ctx.beginPath(); ctx.roundRect(358-off, GATE_Y-5+drop, 42, 10, 4); ctx.fill();
-    ctx.beginPath(); ctx.roundRect(400+off, GATE_Y-5+drop, 42, 10, 4); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(355-off, GATE_Y-5+drop, 45, 10, 4); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(400+off, GATE_Y-5+drop, 45, 10, 4); ctx.fill();
     ctx.fillStyle = '#9ca3af';
     ctx.beginPath(); ctx.arc(400, GATE_Y+drop, 3.5, 0, Math.PI*2); ctx.fill();
     ctx.restore();
